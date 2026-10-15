@@ -50,6 +50,17 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
 .crop img{display:block;width:100%;height:auto;pointer-events:none}
 .crop .box{position:absolute;border:2px solid var(--accent);background:rgba(47,125,79,.15);display:none}
 .crop .tip{font-size:13px;color:var(--sub);margin:6px 0 0}
+.group h2{font-size:15px;margin:18px 0 6px;display:flex;align-items:center;gap:8px}
+.group h2 .n{font-weight:400;color:var(--sub);font-size:13px}
+.item{padding:7px 2px;border-bottom:1px solid var(--line);font-size:15px;cursor:pointer}
+.item .z{color:var(--sub)}
+.item .note{display:none;font-size:13px;color:var(--sub);margin-top:3px}
+.item.open .note{display:block}
+.fz{font-size:11px;color:var(--y);margin-left:4px}
+.add{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.add input{flex:1;min-width:120px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font-size:14px}
+.add button,.add a{flex:none;min-width:0;padding:8px 10px;font-size:13px;border-radius:8px}
+.add a{border:1px solid var(--line);color:var(--text);text-decoration:none;font-weight:600}
 .legend{font-size:12px;color:var(--sub);margin-top:22px;border-top:1px solid var(--line);padding-top:12px}
 .legend p{margin:4px 0}
 </style>
@@ -84,15 +95,16 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
 
   <div id="out" hidden>
     <div class="summary" id="sum"></div>
-    <div class="filters"><label><input type="checkbox" id="onlyAdd"> 只看添加剂和需留意的</label></div>
-    <ul id="list"></ul>
+    <div id="list"></div>
+    <div class="row"><button id="exportCustom" style="display:none">导出我补充的条目（发给 Claude 合并）</button></div>
   </div>
 
   <div class="legend">
     <p><span class="dot d0" style="display:inline-block"></span> 正常：普通食材，或一般认为安全的添加剂</p>
     <p><span class="dot d1" style="display:inline-block"></span> 留意：适量即可，或安全性有讨论、特定人群需注意</p>
     <p><span class="dot d2" style="display:inline-block"></span> 尽量少吃：有较明确的健康担忧，或在其他国家被禁/限用</p>
-    <p><span class="dot du" style="display:inline-block"></span> 未识别：数据库里还没有</p>
+    <p><span class="dot du" style="display:inline-block"></span> 未识别：可点“查一下”后自己补上，存在这台手机里</p>
+    <p>点任意一项可看简短说明。</p>
     <p>成分表按含量从多到少排列，越靠前占比越大。分级仅供个人参考，不是医学建议。</p>
   </div>
 </div>
@@ -312,6 +324,94 @@ const ADD = [
 ['1510','ethanol','乙醇','其他',0,''],
 ['1520','propylene glycol','丙二醇','保湿剂',0,''],
 ['1521','polyethylene glycol','聚乙二醇','其他',0,''],
+['151','brilliant black|brilliant black bn|black pn','亮黑BN','色素',2,'人工合成色素；美国禁用'],
+['164','saffron','藏红花','色素',0,''],
+['181','tannins|tannic acid','单宁','色素',0,''],
+['242','dimethyl dicarbonate','二甲基二碳酸盐','防腐剂',0,'饮料用，会迅速分解'],
+['243','lauric arginate|ethyl lauroyl arginate','月桂酰精氨酸乙酯','防腐剂',0,''],
+['264','ammonium acetate','乙酸铵','酸度调节剂',0,''],
+['337','potassium sodium tartrate|rochelle salt','酒石酸钾钠','酸度调节剂',0,''],
+['343','magnesium phosphate|magnesium phosphates','磷酸镁','酸度调节剂',1,'添加磷酸盐'],
+['349','ammonium malate','苹果酸铵','酸度调节剂',0,''],
+['351','potassium malate','苹果酸钾','酸度调节剂',0,''],
+['353','metatartaric acid','偏酒石酸','酸度调节剂',0,''],
+['354','calcium tartrate','酒石酸钙','酸度调节剂',0,''],
+['355','adipic acid','己二酸','酸度调节剂',0,''],
+['357','potassium adipate','己二酸钾','酸度调节剂',0,''],
+['363','succinic acid','琥珀酸','酸度调节剂',0,''],
+['380','ammonium citrate|ammonium citrates','柠檬酸铵','酸度调节剂',0,''],
+['381','ferric ammonium citrate','柠檬酸铁铵','营养强化',0,''],
+['385','calcium disodium edta|calcium disodium ethylenediaminetetraacetate|edta','乙二胺四乙酸二钠钙（EDTA）','螯合剂',1,'限量内安全；作用是锁住金属离子防变质'],
+['403','ammonium alginate','海藻酸铵','增稠剂',0,''],
+['417','tara gum','他拉胶','增稠剂',0,''],
+['426','soybean polysaccharides|soy polysaccharides','大豆多糖','稳定剂',0,''],
+['431','polyoxyethylene 40 stearate','聚氧乙烯(40)硬脂酸酯','乳化剂',1,''],
+['432','polysorbate 20','聚山梨酯20（吐温20）','乳化剂',1,'同聚山梨酯80'],
+['434','polysorbate 40','聚山梨酯40','乳化剂',1,'同聚山梨酯80'],
+['444','sucrose acetate isobutyrate','蔗糖乙酸异丁酸酯','稳定剂',0,'饮料用'],
+['445','glycerol esters of wood rosin|ester gum','松香甘油酯','稳定剂',0,'饮料用'],
+['457','alpha cyclodextrin','α-环糊精','稳定剂',0,''],
+['458','gamma cyclodextrin','γ-环糊精','稳定剂',0,''],
+['459','beta cyclodextrin','β-环糊精','稳定剂',0,''],
+['462','ethyl cellulose','乙基纤维素','增稠剂',0,''],
+['465','methyl ethyl cellulose','甲乙纤维素','增稠剂',0,''],
+['468','croscarmellose sodium|cross linked sodium carboxymethylcellulose','交联羧甲基纤维素钠','增稠剂',1,'与羧甲基纤维素同类'],
+['469','enzymatically hydrolysed carboxymethylcellulose','酶解羧甲基纤维素钠','增稠剂',1,'与羧甲基纤维素同类'],
+['472d','tartaric acid esters of mono and diglycerides','酒石酸单双甘油酯','乳化剂',0,''],
+['472f','mixed tartaric and acetic acid esters of mono and diglycerides','混合酒石酸乙酸单双甘油酯','乳化剂',0,''],
+['480','dioctyl sodium sulphosuccinate|dioctyl sodium sulfosuccinate','磺基琥珀酸二辛酯钠','乳化剂',1,''],
+['493','sorbitan monolaurate','山梨醇酐单月桂酸酯（司盘20）','乳化剂',0,''],
+['494','sorbitan monooleate','山梨醇酐单油酸酯（司盘80）','乳化剂',0,''],
+['495','sorbitan monopalmitate','山梨醇酐单棕榈酸酯（司盘40）','乳化剂',0,''],
+['510','ammonium chloride','氯化铵','其他',0,''],
+['512','stannous chloride','氯化亚锡','抗氧化剂',1,'含锡'],
+['513','sulphuric acid|sulfuric acid','硫酸','酸度调节剂',0,'加工助剂'],
+['514','sodium sulphate|sodium sulfate','硫酸钠','其他',0,''],
+['515','potassium sulphate|potassium sulfate','硫酸钾','其他',0,''],
+['517','ammonium sulphate|ammonium sulfate','硫酸铵','其他',0,''],
+['518','magnesium sulphate|magnesium sulfate','硫酸镁','固化剂',0,''],
+['520','aluminium sulphate|aluminum sulfate','硫酸铝','固化剂',1,'含铝'],
+['521','aluminium sodium sulphate|sodium aluminium sulphate','硫酸铝钠','固化剂',1,'含铝'],
+['522','aluminium potassium sulphate|potassium alum|alum','硫酸铝钾（明矾）','固化剂',1,'含铝；油条等常用'],
+['523','aluminium ammonium sulphate|ammonium alum','硫酸铝铵（铵明矾）','固化剂',1,'含铝'],
+['526','calcium hydroxide|slaked lime','氢氧化钙','酸度调节剂',0,''],
+['527','ammonium hydroxide','氢氧化铵','酸度调节剂',0,''],
+['528','magnesium hydroxide','氢氧化镁','酸度调节剂',0,''],
+['530','magnesium oxide','氧化镁','抗结剂',0,''],
+['535','sodium ferrocyanide','亚铁氰化钠','抗结剂',0,'食盐抗结剂，用量极低，毒性很小'],
+['536','potassium ferrocyanide','亚铁氰化钾','抗结剂',0,'食盐抗结剂，用量极低，毒性很小'],
+['542','bone phosphate|edible bone phosphate','骨磷酸盐','抗结剂',0,''],
+['553','talc','滑石粉','抗结剂',0,''],
+['555','potassium aluminium silicate','硅铝酸钾','抗结剂',1,'含铝'],
+['558','bentonite','膨润土','抗结剂',0,''],
+['559','aluminium silicate|kaolin','硅酸铝','抗结剂',1,'含铝'],
+['560','potassium silicate','硅酸钾','抗结剂',0,''],
+['574','gluconic acid','葡萄糖酸','酸度调节剂',0,''],
+['580','magnesium gluconate','葡萄糖酸镁','酸度调节剂',0,''],
+['586','4 hexylresorcinol|hexylresorcinol','4-己基间苯二酚','抗氧化剂',0,'防虾黑变'],
+['623','calcium glutamate','谷氨酸钙','增味剂',0,''],
+['624','monoammonium glutamate','谷氨酸铵','增味剂',0,''],
+['625','magnesium glutamate','谷氨酸镁','增味剂',0,''],
+['637','ethyl maltol','乙基麦芽酚','增味剂',0,''],
+['914','oxidised polyethylene wax','氧化聚乙烯蜡','被膜剂',0,'水果表面'],
+['926','chlorine dioxide','二氧化氯','面粉处理剂',0,''],
+['943','butane|isobutane','丁烷','包装气体',0,'喷雾推进剂'],
+['944','propane','丙烷','包装气体',0,'喷雾推进剂'],
+['1100','amylase|amylases|alpha amylase','淀粉酶','酶制剂',0,''],
+['1101','protease|proteases|papain|bromelain','蛋白酶','酶制剂',0,''],
+['1102','glucose oxidase','葡萄糖氧化酶','酶制剂',0,''],
+['1104','lipase|lipases','脂肪酶','酶制剂',0,''],
+['1105','lysozyme','溶菌酶','防腐剂',0,'来自蛋清，鸡蛋过敏者留意'],
+['1200','polydextrose','聚葡萄糖','膳食纤维',0,'大量可胀气'],
+['1201','polyvinylpyrrolidone|povidone','聚乙烯吡咯烷酮','稳定剂',0,''],
+['1202','polyvinylpolypyrrolidone|pvpp','交联聚乙烯吡咯烷酮','稳定剂',0,'饮料澄清剂'],
+['1401','acid treated starch','酸处理淀粉','增稠剂',0,'变性淀粉'],
+['1402','alkaline treated starch','碱处理淀粉','增稠剂',0,'变性淀粉'],
+['1403','bleached starch','漂白淀粉','增稠剂',0,'变性淀粉'],
+['1405','enzyme treated starch|enzyme treated starches','酶处理淀粉','增稠剂',0,'变性淀粉'],
+['1443','hydroxypropyl distarch glycerol','羟丙基二淀粉甘油','增稠剂',0,'变性淀粉'],
+['1451','acetylated oxidised starch|acetylated oxidized starch','乙酰化氧化淀粉','增稠剂',0,'变性淀粉'],
+['1518','triacetin|glyceryl triacetate','三乙酸甘油酯','保湿剂',0,''],
 ];
 
 // 普通食材：[英文名, 中文名, 类别, 分级, 说明]
@@ -439,6 +539,72 @@ const FOOD = [
 ['fruit|fruits','水果','食材',0,''],['apple|apples','苹果','食材',0,''],
 ['strawberries|strawberry','草莓','食材',0,''],['raisins|sultanas','葡萄干','食材',0,''],
 ['lemon juice','柠檬汁','食材',0,''],['alcohol','酒精','其他',0,''],
+['cream cheese','奶油奶酪','食材',0,''],['mozzarella|mozzarella cheese','马苏里拉奶酪','食材',0,''],
+['sour cream','酸奶油','食材',0,''],['condensed milk|sweetened condensed milk','炼乳','添加糖',1,'含大量糖'],
+['ghee','酥油','油脂',1,'饱和脂肪高'],['cultures|live cultures|yoghurt cultures|lactic cultures|probiotic cultures|starter cultures|cheese cultures','菌种 / 活性菌','食材',0,''],
+['rennet|microbial rennet|animal rennet','凝乳酶','食材',0,''],
+['lamb','羊肉','食材',0,''],['turkey','火鸡肉','食材',0,''],['meat|meats','肉','食材',0,''],
+['ham','火腿','食材',1,'加工肉：IARC 1 类致癌物，适量'],['bacon','培根','食材',1,'加工肉：IARC 1 类致癌物，适量'],
+['salami','萨拉米香肠','食材',1,'加工肉'],['sausage|sausages','香肠','食材',1,'加工肉'],
+['mechanically separated chicken|mechanically separated meat|mechanically separated pork','机械分离肉','食材',1,'碎肉再制，品质较低'],
+['stock|beef stock|chicken stock|vegetable stock|broth','高汤','食材',0,'常含较多盐'],
+['chicken fat','鸡油','油脂',1,''],['fish sauce','鱼露','食材',0,'含盐量高'],['oyster sauce|oyster extract','蚝油','食材',0,'含盐量高'],
+['anchovies|anchovy','凤尾鱼','食材',0,''],['tuna','金枪鱼','食材',0,''],['salmon','三文鱼','食材',0,''],
+['squid','鱿鱼','食材',0,''],['mussels','青口','食材',0,''],['molluscs','软体动物','食材',0,''],
+['carrot|carrots','胡萝卜','食材',0,''],['peas|green peas','豌豆','食材',0,''],['beans','豆','食材',0,''],
+['green beans','四季豆','食材',0,''],['kidney beans|red kidney beans','红腰豆','食材',0,''],['black beans','黑豆','食材',0,''],
+['lentils','小扁豆','食材',0,''],['mushroom|mushrooms','蘑菇','食材',0,''],['spinach','菠菜','食材',0,''],
+['broccoli','西兰花','食材',0,''],['cabbage','卷心菜','食材',0,''],['capsicum|red capsicum|bell pepper','甜椒','食材',0,''],
+['celery','芹菜','食材',0,'常见过敏原'],['corn kernels|sweetcorn|sweet corn','甜玉米','食材',0,''],['pumpkin','南瓜','食材',0,''],
+['sweet potato','红薯','食材',0,''],['zucchini','西葫芦','食材',0,''],['eggplant','茄子','食材',0,''],
+['olives|olive','橄榄','食材',0,''],['beetroot','甜菜根','食材',0,''],['leek','韭葱','食材',0,''],['shallots|spring onion','葱','食材',0,''],
+['parsley','欧芹','食材',0,''],['basil','罗勒','食材',0,''],['oregano','牛至','食材',0,''],['thyme','百里香','食材',0,''],
+['rosemary|rosemary extract','迷迭香','食材',0,''],['coriander','香菜','食材',0,''],['cumin','孜然','食材',0,''],
+['mustard|mustard seed|mustard flour','芥末','食材',0,'常见过敏原'],['horseradish','辣根','食材',0,''],['wasabi','山葵','食材',0,''],
+['nutmeg','肉豆蔻','食材',0,''],['clove|cloves','丁香','食材',0,''],['star anise','八角','食材',0,''],['fennel','茴香','食材',0,''],
+['tahini|sesame paste','芝麻酱','食材',0,''],['peanut butter','花生酱','食材',0,''],['miso','味噌','食材',0,'含盐量高'],
+['worcestershire sauce','伍斯特酱','食材',0,''],['tomato sauce|ketchup','番茄酱','食材',0,'含糖较多'],['mayonnaise','蛋黄酱','食材',0,''],
+['lemon','柠檬','食材',0,''],['lime','青柠','食材',0,''],['orange','橙','食材',0,''],['banana','香蕉','食材',0,''],
+['mango','芒果','食材',0,''],['pineapple','菠萝','食材',0,''],['blueberries','蓝莓','食材',0,''],['raspberries','覆盆子','食材',0,''],
+['cherries','樱桃','食材',0,''],['grapes','葡萄','食材',0,''],['dates','椰枣','食材',0,''],['figs','无花果','食材',0,''],
+['cranberries|dried cranberries','蔓越莓','食材',0,'果干常加糖'],['apricots|dried apricots','杏','食材',0,''],
+['dried fruit','果干','食材',0,''],['fruit puree|apple puree','果泥','食材',0,''],['orange juice','橙汁','食材',0,''],
+['lemon juice concentrate|concentrated lemon juice','浓缩柠檬汁','食材',0,''],['citrus fibre|citrus fiber','柑橘纤维','食材',0,''],
+['walnuts','核桃','食材',0,''],['pecans','碧根果','食材',0,''],['macadamia|macadamias|macadamia nuts','夏威夷果','食材',0,''],
+['pistachios','开心果','食材',0,''],['pine nuts','松子','食材',0,''],['brazil nuts','巴西坚果','食材',0,''],
+['chia seeds|chia','奇亚籽','食材',0,''],['flaxseed|linseed|linseeds','亚麻籽','食材',0,''],
+['sunflower seeds|sunflower kernels','葵花籽','食材',0,''],['pumpkin seeds|pepitas','南瓜子','食材',0,''],['poppy seeds','罂粟籽','食材',0,''],
+['quinoa','藜麦','食材',0,''],['buckwheat','荞麦','食材',0,''],['millet','小米','食材',0,''],['sorghum','高粱','食材',0,''],
+['spelt|spelt flour','斯佩尔特小麦','食材',0,'含麸质'],['wheat germ','小麦胚芽','食材',0,''],['oat bran','燕麦麸','食材',0,''],
+['rice bran','米糠','食材',0,''],['polenta|cornmeal|corn meal','玉米粉（粗）','食材',0,''],['breadcrumbs','面包屑','食材',0,''],
+['noodles','面条','食材',0,''],['pasta','意面','食材',0,''],['couscous','古斯米','食材',0,''],['sago','西米','食材',0,''],['arrowroot','葛粉','食材',0,''],
+['wheat protein|textured wheat protein','小麦蛋白','食材',0,''],['rice protein','大米蛋白','食材',0,''],['fava bean protein|faba bean protein','蚕豆蛋白','食材',0,''],
+['hemp seeds|hemp seed','火麻籽','食材',0,''],
+['enzymes|enzyme','酶制剂','加工助剂',0,''],['baking powder','泡打粉','膨松剂',0,''],['yeast nutrient','酵母营养剂','面粉处理剂',0,''],
+['coconut sugar','椰子糖','添加糖',1,'添加糖'],['agave syrup|agave','龙舌兰糖浆','添加糖',1,'添加糖，果糖很高'],['date syrup','椰枣糖浆','添加糖',1,'添加糖'],
+['trehalose','海藻糖','添加糖',1,'添加糖'],['allulose','阿洛酮糖','甜味剂',0,'低热量糖'],['isomaltulose','异麦芽酮糖','添加糖',1,'升糖较慢的糖'],
+['oligofructose|fructooligosaccharides|fructo oligosaccharides|fos','低聚果糖','膳食纤维',0,'大量可胀气'],
+['galacto oligosaccharides|galactooligosaccharides|gos','低聚半乳糖','膳食纤维',0,''],
+['interesterified vegetable oil|interesterified fat|interesterified oil','酯交换油','油脂',1,'替代氢化油的工艺，健康影响研究较少'],
+['fractionated palm oil|fractionated vegetable oil|fractionated palm kernel oil','分提棕榈油','油脂',1,'饱和脂肪高'],
+['shea butter|shea oil|shea','乳木果油','油脂',1,'常用作代可可脂'],['avocado oil','牛油果油','油脂',0,''],['macadamia oil','夏威夷果油','油脂',0,''],
+['cocoa butter equivalent','类可可脂','油脂',1,'代替部分可可脂'],['vegetable oil emulsion','植物油乳液','油脂',1,''],
+['fish oil|omega 3|dha|tuna oil','鱼油 / DHA','营养强化',0,''],['mct oil|medium chain triglycerides','中链甘油三酯','油脂',0,''],
+['smoke flavour|liquid smoke|smoke flavouring|natural smoke flavour','烟熏香料','香料',1,'可能含少量多环芳烃'],
+['spice extract|spice extracts|herb extract|herb extracts','香辛料提取物','香料',0,''],['ethyl vanillin','乙基香兰素','香料',0,''],
+['monk fruit|monk fruit extract|luo han guo|luo han guo extract|mogrosides','罗汉果甜苷','甜味剂',0,'天然来源甜味剂'],
+['vitamin k|vitamin k1|phylloquinone','维生素K','营养强化',0,''],['biotin','生物素','营养强化',0,''],
+['pantothenic acid|calcium pantothenate|calcium d pantothenate','泛酸','营养强化',0,''],
+['magnesium','镁','营养强化',0,''],['calcium','钙','营养强化',0,''],['potassium','钾','营养强化',0,''],['selenium','硒','营养强化',0,''],
+['ferrous fumarate|ferrous gluconate|ferric orthophosphate','铁','营养强化',0,''],['zinc sulphate|zinc sulfate','锌','营养强化',0,''],
+['carob|carob powder','角豆粉','食材',0,''],['mineral water|spring water','矿泉水','食材',0,''],
+['tea|green tea|black tea|tea extract|green tea extract','茶','食材',0,'含咖啡因'],['coffee|instant coffee|coffee extract','咖啡','食材',0,'含咖啡因'],
+['cocoa nibs','可可碎','食材',0,''],['wine','葡萄酒','食材',0,''],['beer','啤酒','食材',0,''],['rum','朗姆酒','食材',0,''],
+['chocolate chips|choc chips|chocolate pieces','巧克力豆','食材',0,''],['compound chocolate|compound milk chocolate','代可可脂巧克力','食材',1,'用植物油代替可可脂'],
+['white chocolate','白巧克力','食材',1,'糖和脂肪为主'],['sprinkles|hundreds and thousands','彩色糖珠','添加糖',1,'常含人工色素'],
+['marshmallow|marshmallows','棉花糖','添加糖',1,''],['caramel pieces|toffee','焦糖块','添加糖',1,''],
+['psyllium|psyllium husk','车前子壳','膳食纤维',0,''],['oat fibre|apple fibre|potato fibre|pea fibre|bamboo fibre|sugar cane fibre|wheat fibre','膳食纤维','食材',0,''],
+['hydrolysed collagen|collagen peptides','胶原蛋白肽','食材',0,''],
 ];
 
 // 只是类别标签的词（识别后不单独列出）
@@ -462,13 +628,23 @@ function addEntry(e, aliases){
   for(const a of aliases){ const k = norm(a); if(!k) continue; if(!byName[k]){ byName[k]=e; aliasList.push(k); } }
 }
 for(const [c,names,zh,type,r,note] of ADD){
-  const e = {code:c, zh, type, r, note, add:true};
+  const nm = names ? names.split('|')[0] : '';
+  const e = {code:c, en: nm ? nm.charAt(0).toUpperCase()+nm.slice(1) : 'E'+c, zh, type, r, note, add:true};
   byCode[c] = e;
   addEntry(e, names ? names.split('|') : []);
 }
 for(const [names,zh,type,r,note] of FOOD){
-  addEntry({code:'', zh, type, r, note, add: type!=='食材' && type!=='油脂' && type!=='添加糖' && type!=='营养强化'}, names.split('|'));
+  const nm = names.split('|')[0];
+  addEntry({code:'', en: nm.charAt(0).toUpperCase()+nm.slice(1), zh, type, r, note, add: type!=='食材' && type!=='油脂' && type!=='添加糖' && type!=='营养强化'}, names.split('|'));
 }
+let CUSTOM = {};
+try{ CUSTOM = JSON.parse(localStorage.getItem('custom') || '{}'); }catch(e){}
+function addCustom(name, zh, r){
+  const k = norm(name);
+  const e = {code:'', en: name.charAt(0).toUpperCase()+name.slice(1), zh, type:'我补充的', r, note:'', add:true};
+  byName[k] = e; if(!aliasList.includes(k)){ aliasList.push(k); aliasList.sort((a,b)=>b.length-a.length); }
+}
+for(const k in CUSTOM) addCustom(k, CUSTOM[k].zh, CUSTOM[k].r);
 const classSet = new Set(CLASS_WORDS.map(norm));
 aliasList.sort((a,b)=>b.length-a.length);
 
@@ -569,23 +745,59 @@ if(typeof document !== 'undefined'){
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   let last = [];
+  const GROUPS = [[0,'正常','d0'],[1,'留意','d1'],[2,'尽量少吃','d2'],[-1,'未识别','du']];
+  function label(i){
+    if(i.r === -1) return esc(i.src);
+    const code = i.code ? ' ' + esc(i.code) : '';
+    return `${esc(i.en)}${code} <span class="z">（${esc(i.zh)}）</span>${i.fuzzy ? '<span class="fz">模糊匹配</span>' : ''}`;
+  }
   function render(){
-    const only = $('onlyAdd').checked;
-    const items = only ? last.filter(i => i.add || i.r>=1 || i.r===-1) : last;
-    const cnt = {0:0,1:0,2:0,'-1':0}; last.forEach(i => cnt[i.r]++);
-    $('sum').innerHTML =
-      `<span class="pill"><span class="dot d0"></span>正常 ${cnt[0]}</span>`+
-      `<span class="pill"><span class="dot d1"></span>留意 ${cnt[1]}</span>`+
-      `<span class="pill"><span class="dot d2"></span>少吃 ${cnt[2]}</span>`+
-      (cnt[-1] ? `<span class="pill"><span class="dot du"></span>未识别 ${cnt[-1]}</span>` : '');
-    $('list').innerHTML = items.map(i => `
-      <li class="r${i.r}">
-        <div class="top"><span class="zh">${esc(i.zh)}</span><span class="type">${esc(i.type)}${i.code?' · '+esc(i.code):''}</span></div>
-        <div class="en">${esc(i.src)}${i.fuzzy?'（模糊匹配，请核对）':''}</div>
-        ${i.note ? `<div class="note">${esc(i.note)}</div>` : ''}
-      </li>`).join('');
+    let html = '';
+    for(const [r, name, dot] of GROUPS){
+      const items = last.filter(i => i.r === r);
+      if(!items.length) continue;
+      html += `<div class="group"><h2><span class="dot ${dot}"></span>${name}<span class="n">${items.length} 项</span></h2>`;
+      html += items.map((i, idx) => {
+        if(r === -1){
+          const q = encodeURIComponent(i.src + ' 食品成分 中文');
+          return `<div class="item open" data-u="${esc(i.src)}">${esc(i.src)}
+            <div class="note add">
+              <input placeholder="中文名" data-zh>
+              <a href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">查一下</a>
+              <button data-r="0">正常</button><button data-r="1">留意</button><button data-r="2">少吃</button>
+            </div></div>`;
+        }
+        const note = [i.type, i.note].filter(Boolean).join(' · ');
+        return `<div class="item">${label(i)}${note ? `<div class="note">${esc(note)}</div>` : ''}</div>`;
+      }).join('');
+      html += '</div>';
+    }
+    $('list').innerHTML = html;
+    $('sum').innerHTML = GROUPS.filter(g => g[0] !== -1).map(([r, name, dot]) =>
+      `<span class="pill"><span class="dot ${dot}"></span>${name} ${last.filter(i => i.r === r).length}</span>`).join('');
+    $('exportCustom').style.display = Object.keys(CUSTOM).length ? 'block' : 'none';
     $('out').hidden = false;
   }
+  $('list').addEventListener('click', ev => {
+    const btn = ev.target.closest('button[data-r]');
+    if(btn){
+      const it = btn.closest('.item'); const name = it.dataset.u;
+      const zh = it.querySelector('[data-zh]').value.trim();
+      if(!zh){ it.querySelector('[data-zh]').focus(); $('status').textContent = '先填个中文名。'; return; }
+      const k = norm(name); CUSTOM[k] = {zh, r: +btn.dataset.r};
+      try{ localStorage.setItem('custom', JSON.stringify(CUSTOM)); }catch(e){}
+      addCustom(k, zh, +btn.dataset.r);
+      run(); $('status').textContent = `已保存：${name}（${zh}），以后会自动识别`;
+      return;
+    }
+    if(ev.target.closest('input,a')) return;
+    const it = ev.target.closest('.item'); if(it && !it.dataset.u) it.classList.toggle('open');
+  });
+  $('exportCustom').onclick = async () => {
+    const t = '成分查查 我补充的条目：\n' + Object.entries(CUSTOM).map(([k,v]) => `${k} | ${v.zh} | ${['正常','留意','少吃'][v.r]}`).join('\n');
+    try{ await navigator.clipboard.writeText(t); $('exportCustom').textContent = '已复制 ✓'; }
+    catch(e){ $('txt').value = t; $('exportCustom').textContent = '已放到上面文本框，请手动复制'; }
+  };
   function run(){
     const txt = $('txt').value.trim();
     if(!txt){ $('status').textContent = '先粘贴或拍一张成分表。'; return; }
@@ -595,7 +807,6 @@ if(typeof document !== 'undefined'){
     render();
   }
   $('go').onclick = run;
-  $('onlyAdd').onchange = render;
   $('clear').onclick = () => { $('txt').value=''; $('out').hidden=true; $('status').textContent=''; };
   $('demo').onclick = () => { $('txt').value = 'Ingredients: Wheat Flour (contains Thiamine, Folic Acid), Sugar, Vegetable Oil (Palm, Canola), Glucose Syrup, Cocoa (3%), Salt, Emulsifiers (471, Soy Lecithin), Raising Agents (500ii, 450), Colour (150d), Flavour, Preservative (282), Sweetener (955). Contains: Wheat, Soy.'; run(); };
   $('paste').onclick = async () => {
