@@ -85,6 +85,9 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
   <div class="crop" id="crop">
     <div class="stage" id="stage"><img id="photo" alt=""><div class="box" id="box"></div></div>
     <p class="tip">用手指在照片上拖一个框，框住成分表那一段。不框就识别整张。</p>
+    <p class="tip">识别引擎：
+      <label><input type="radio" name="eng" value="paddle" checked> PaddleOCR（推荐）</label>
+      <label><input type="radio" name="eng" value="tess"> Tesseract</label></p>
     <div class="row">
       <button class="primary" id="ocrSel">识别选中区域</button>
       <button id="ocrAll">识别整张</button>
@@ -643,9 +646,17 @@ function addCustom(name, zh, r){
   const k = norm(name);
   const e = {code:'', en: name.charAt(0).toUpperCase()+name.slice(1), zh, type:'我补充的', r, note:'', add:true};
   byName[k] = e; if(!aliasList.includes(k)){ aliasList.push(k); aliasList.sort((a,b)=>b.length-a.length); }
+  if(typeof compactMap !== 'undefined') compactMap = compactIndex();
 }
 for(const k in CUSTOM) addCustom(k, CUSTOM[k].zh, CUSTOM[k].r);
 const classSet = new Set(CLASS_WORDS.map(norm));
+function compactIndex(){
+  const m = {};
+  for(const a of aliasList){ const k = a.replace(/ /g,''); if(k.length >= 4 && !m[k]) m[k] = a; }
+  return m;
+}
+let compactMap = compactIndex();
+const compactKeys = () => Object.keys(compactMap).sort((a,b)=>b.length-a.length);
 aliasList.sort((a,b)=>b.length-a.length);
 
 // ===== 解析 =====
@@ -668,9 +679,19 @@ function lookupCode(num, letter, roman){
   num = String(parseInt(num,10));
   return byCode[num+(letter||'')+(roman||'')] || byCode[num+(letter||'')] || byCode[num] || null;
 }
+// OCR 文字修正：补空格、修正数字字母混淆
+function fixOcr(t){
+  return t
+    .replace(/([a-z])([A-Z])/g, '$1 $2')                         // WheatFlour → Wheat Flour
+    .replace(/([,.;:)])(?=[A-Za-z(])/g, '$1 ')                    // 标点后补空格
+    .replace(/\b(\d+)[oO](?=[\d(]|\b)/g, '$10').replace(/\b(\d+)[oO](\d*)\b/g, '$10$2')   // 50o → 500
+    .replace(/\b[oO](\d{2,3})\b/g, '0$1')
+    .replace(/(\d)[lI](?=\d)/g, '$11')                            // 4l1 → 411
+    .replace(/([A-Z])0(?=[A-Z])/g, '$1O');                       // C0NTAINS → CONTAINS
+}
 // 从整段文字中截出成分表部分
 function extractIngredients(text){
-  const startRe = /\b(ingredients?|ingredient list)\s*[:：\-]?/i;
+  const startRe = /(?:^|[^a-z])[i1l|]\s?n\s?g\s?r\s?e\s?d\s?[i1l|]\s?e\s?n\s?t\s?s?(?:\s*list)?\s*[:：;\-]?/i;   // 容忍 OCR 错字，如 INGREDl ENTS
   const m = startRe.exec(text);
   if(!m) return {text, cut:false};
   let rest = text.slice(m.index + m[0].length);
@@ -729,7 +750,24 @@ function analyze(text){
     for(const c of classSet) rest = (' '+rest+' ').replace(' '+c+' ',' ');
     if(!rest.trim() || stripLead(norm(rest))==='' ) continue;
     if(hadCode && rest.trim().split(' ').length<=2) continue;
-    // 4) 模糊匹配（OCR 错字）
+    // 4) 去掉空格再匹配（OCR 常把空格吃掉，如 WHEATFLOUR）
+    {
+      const c = s.replace(/ /g,'');
+      if(compactMap[c]){ const fe = byName[compactMap[c]]; if(!classSet.has(compactMap[c])){ push(fe.code?'c'+fe.code:'n'+fe.zh, {...fe, src: orig}); } continue; }
+      if(c.length >= 8){
+        const keys = compactKeys(); const hits = []; let covered = 0, i = 0;
+        while(i < c.length){
+          const k = keys.find(k => c.startsWith(k, i));
+          if(k){ hits.push(compactMap[k]); covered += k.length; i += k.length; } else i++;
+        }
+        if(hits.length && covered / c.length >= 0.7){
+          for(const a of hits){ if(classSet.has(a)) continue; const fe = byName[a]; push(fe.code?'c'+fe.code:'n'+fe.zh, {...fe, src: orig}); }
+          continue;
+        }
+      }
+    }
+    // 5) 模糊匹配（OCR 错字）
+    { const c = s.replace(/ /g,''); if(c.length >= 6 && [...classSet].some(w => lev(c, w.replace(/ /g,'')) <= 2)) continue; }   // 类别词的错字，如 Preser Vative
     if(s.length >= 5){
       let best=null, bd=9; const lim = s.length>=10 ? 2 : 1;
       for(const a of aliasList){ if(Math.abs(a.length-s.length)>lim) continue; const d = lev(s,a); if(d<bd){bd=d;best=a;} }
@@ -739,6 +777,141 @@ function analyze(text){
   }
   return out;
 }
+
+// ===== PaddleOCR (PP-OCRv4 mobile) 精简实现：检测 + 识别，不依赖 OpenCV =====
+const PPOCR = (() => {
+  // 双线性缩放，img = {data: Uint8ClampedArray RGBA, width, height}
+  function resize(src, sx, sy, sw, sh, dw, dh) {
+    const out = new Uint8ClampedArray(dw * dh * 4), d = src.data, W = src.width, H = src.height;
+    for (let y = 0; y < dh; y++) {
+      const fy = sy + (y + 0.5) * sh / dh - 0.5;
+      const y0 = Math.max(0, Math.min(H - 1, Math.floor(fy))), y1 = Math.min(H - 1, y0 + 1), wy = Math.max(0, Math.min(1, fy - y0));
+      for (let x = 0; x < dw; x++) {
+        const fx = sx + (x + 0.5) * sw / dw - 0.5;
+        const x0 = Math.max(0, Math.min(W - 1, Math.floor(fx))), x1 = Math.min(W - 1, x0 + 1), wx = Math.max(0, Math.min(1, fx - x0));
+        const a = (y0 * W + x0) * 4, b = (y0 * W + x1) * 4, c = (y1 * W + x0) * 4, e = (y1 * W + x1) * 4, o = (y * dw + x) * 4;
+        for (let k = 0; k < 3; k++)
+          out[o + k] = (d[a + k] * (1 - wx) + d[b + k] * wx) * (1 - wy) + (d[c + k] * (1 - wx) + d[e + k] * wx) * wy;
+        out[o + 3] = 255;
+      }
+    }
+    return { data: out, width: dw, height: dh };
+  }
+  // RGBA -> CHW float，通道顺序 BGR（PaddleOCR 训练时用 OpenCV 读图）
+  function toTensorData(img, mean, std) {
+    const n = img.width * img.height, f = new Float32Array(3 * n), d = img.data;
+    for (let i = 0; i < n; i++) {
+      const r = d[i * 4] / 255, g = d[i * 4 + 1] / 255, b = d[i * 4 + 2] / 255;
+      f[i] = (b - mean[0]) / std[0]; f[n + i] = (g - mean[1]) / std[1]; f[2 * n + i] = (r - mean[2]) / std[2];
+    }
+    return f;
+  }
+
+  // 旋转矩形采样：box = {cx, cy, ux, uy, L, T}（中心、方向、长、高）
+  function sampleRotated(src, b, dw, dh) {
+    const out = new Uint8ClampedArray(dw * dh * 4), d = src.data, W = src.width, H = src.height;
+    const vx = -b.uy, vy = b.ux;
+    for (let y = 0; y < dh; y++) for (let x = 0; x < dw; x++) {
+      const su = ((x + 0.5) / dw - 0.5) * b.L, sv = ((y + 0.5) / dh - 0.5) * b.T;
+      const fx = b.cx + b.ux * su + vx * sv - 0.5, fy = b.cy + b.uy * su + vy * sv - 0.5;
+      const x0 = Math.floor(fx), y0 = Math.floor(fy), wx = fx - x0, wy = fy - y0, o = (y * dw + x) * 4;
+      for (let k = 0; k < 3; k++) {
+        const g = (xx, yy) => d[(Math.max(0, Math.min(H - 1, yy)) * W + Math.max(0, Math.min(W - 1, xx))) * 4 + k];
+        out[o + k] = (g(x0, y0) * (1 - wx) + g(x0 + 1, y0) * wx) * (1 - wy) + (g(x0, y0 + 1) * (1 - wx) + g(x0 + 1, y0 + 1) * wx) * wy;
+      }
+      out[o + 3] = 255;
+    }
+    return { data: out, width: dw, height: dh };
+  }
+
+  async function detect(ort, sess, img, maxSide = 1280, thr = 0.3) {
+    const s = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const rw = Math.max(32, Math.round(img.width * s / 32) * 32), rh = Math.max(32, Math.round(img.height * s / 32) * 32);
+    const small = resize(img, 0, 0, img.width, img.height, rw, rh);
+    const input = new ort.Tensor('float32', toTensorData(small, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), [1, 3, rh, rw]);
+    const out = (await sess.run({ [sess.inputNames[0]]: input }))[sess.outputNames[0]];
+    const prob = out.data, W = rw, H = rh, fx = img.width / rw, fy = img.height / rh;
+    const seen = new Uint8Array(W * H), boxes = [];
+    for (let i = 0; i < W * H; i++) {
+      if (seen[i] || prob[i] <= thr) continue;
+      const px = [], stack = [i]; seen[i] = 1; let sum = 0;
+      while (stack.length) {
+        const p = stack.pop(); px.push(p); sum += prob[p];
+        const x = p % W, y = (p - x) / W;
+        if (x > 0 && !seen[p - 1] && prob[p - 1] > thr) { seen[p - 1] = 1; stack.push(p - 1); }
+        if (x < W - 1 && !seen[p + 1] && prob[p + 1] > thr) { seen[p + 1] = 1; stack.push(p + 1); }
+        if (y > 0 && !seen[p - W] && prob[p - W] > thr) { seen[p - W] = 1; stack.push(p - W); }
+        if (y < H - 1 && !seen[p + W] && prob[p + W] > thr) { seen[p + W] = 1; stack.push(p + W); }
+      }
+      if (px.length < 10 || sum / px.length < 0.6) continue;
+      // 主方向（二阶矩），换算到原图坐标
+      let mx = 0, my = 0;
+      for (const p of px) { mx += (p % W) * fx; my += Math.floor(p / W) * fy; }
+      mx /= px.length; my /= px.length;
+      let sxx = 0, syy = 0, sxy = 0;
+      for (const p of px) { const dx = (p % W) * fx - mx, dy = Math.floor(p / W) * fy - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+      let ang = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+      if (Math.abs(ang) > Math.PI / 6) ang = 0;            // 只处理轻微倾斜
+      const ux = Math.cos(ang), uy = Math.sin(ang);
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const p of px) {
+        const dx = (p % W + 0.5) * fx - mx, dy = (Math.floor(p / W) + 0.5) * fy - my;
+        const u = dx * ux + dy * uy, v = -dx * uy + dy * ux;
+        if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v;
+      }
+      u0 -= fx / 2; u1 += fx / 2; v0 -= fy / 2; v1 += fy / 2;
+      let L = u1 - u0, T = v1 - v0;
+      if (Math.min(L, T) < 3 * Math.min(fx, fy)) continue;
+      const dist = L * T * 1.5 / (2 * (L + T));
+      const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+      L += 2 * dist; T += 2 * dist;
+      boxes.push({ cx: mx + cu * ux - cv * uy, cy: my + cu * uy + cv * ux, ux, uy, L, T,
+                   x: mx + cu * ux - cv * uy - L / 2, y: my + cu * uy + cv * ux - T / 2, w: L, h: T });
+    }
+    return boxes;
+  }
+
+  async function recognizeBox(ort, sess, dict, img, b) {
+    const h = 48, w = Math.max(16, Math.min(2400, Math.round(h * b.L / b.T)));
+    const line = sampleRotated(img, b, w, h);
+    const input = new ort.Tensor('float32', toTensorData(line, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5]), [1, 3, h, w]);
+    const out = (await sess.run({ [sess.inputNames[0]]: input }))[sess.outputNames[0]];
+    const [, T, C] = out.dims, p = out.data;
+    let text = '', last = -1, conf = 0, n = 0;
+    for (let t = 0; t < T; t++) {
+      let mi = 0, mv = -Infinity;
+      for (let c = 0; c < C; c++) { const v = p[t * C + c]; if (v > mv) { mv = v; mi = c; } }
+      if (mi !== 0 && mi !== last) { text += dict[mi - 1] ?? ''; conf += mv; n++; }
+      last = mi;
+    }
+    return { text, conf: n ? conf / n : 0 };
+  }
+
+  // 按行排序拼接
+  function joinLines(items) {
+    if (!items.length) return '';
+    const avgH = items.reduce((s, i) => s + i.h, 0) / items.length;
+    const rows = [];
+    for (const it of items.sort((a, b) => (a.y + a.h / 2) - (b.y + b.h / 2))) {
+      const mid = it.y + it.h / 2;
+      const row = rows.find(r => Math.abs(r.mid - mid) < avgH / 2);
+      if (row) row.items.push(it); else rows.push({ mid, items: [it] });
+    }
+    return rows.map(r => r.items.sort((a, b) => a.x - b.x).map(i => i.text).join(' ')).join('\n');
+  }
+
+  async function run(ort, det, rec, dict, img, onProgress, thr = 0.3) {
+    const boxes = (await detect(ort, det, img, 1280, thr)).filter(b => b.L >= b.T * 0.8);   // 跳过竖排文字
+    const items = [];
+    for (let i = 0; i < boxes.length; i++) {
+      if (onProgress) onProgress(i + 1, boxes.length);
+      const r = await recognizeBox(ort, rec, dict, img, boxes[i]);
+      if (r.text.trim() && r.conf >= 0.5) items.push({ ...boxes[i], text: r.text.trim() });
+    }
+    return joinLines(items);
+  }
+  return { run, resize };
+})();
 
 // ===== 界面 =====
 if(typeof document !== 'undefined'){
@@ -814,7 +987,7 @@ if(typeof document !== 'undefined'){
     catch(e){ $('status').textContent = '浏览器不允许直接读取剪贴板，请长按文本框手动粘贴。'; }
   };
 
-  // 拍照识别（Tesseract.js，在手机本地运行）
+  // 拍照识别（PaddleOCR / Tesseract.js，都在手机本地运行）
   let worker = null;
   function loadScript(src){ return new Promise((ok,bad)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=bad; document.head.appendChild(s); }); }
   function shrink(file){
@@ -864,18 +1037,75 @@ if(typeof document !== 'undefined'){
       img.src = photo.src;
     });
   }
+  // ---- 引擎选择（记在手机里）----
+  try{ const e = localStorage.getItem('engine'); if(e) document.querySelector(`input[name=eng][value=${e}]`).checked = true; }catch(e){}
+  document.querySelectorAll('input[name=eng]').forEach(r => r.onchange = () => { try{ localStorage.setItem('engine', r.value); }catch(e){} });
+  const engine = () => document.querySelector('input[name=eng]:checked').value;
+
+  // ---- PaddleOCR 加载 ----
+  const ORT = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+  const MODELS = 'https://cdn.jsdelivr.net/npm/@gutenye/ocr-models@1.4.2/assets/';
+  let paddle = null;
+  async function fetchCached(url){
+    try{
+      const c = await caches.open('ppocr-v1'); let r = await c.match(url);
+      if(!r){ r = await fetch(url); if(!r.ok) throw new Error('下载失败 ' + r.status); await c.put(url, r.clone()); }
+      return r;
+    }catch(e){ const r = await fetch(url); if(!r.ok) throw new Error('下载失败 ' + r.status); return r; }
+  }
+  async function loadPaddle(){
+    if(paddle) return paddle;
+    $('status').textContent = '首次使用，正在下载 PaddleOCR（约 16 MB，之后会缓存）…';
+    if(!window.ort) await loadScript(ORT + 'ort.wasm.min.js');
+    ort.env.wasm.wasmPaths = ORT; ort.env.wasm.numThreads = 1;
+    const [detBuf, recBuf, dictTxt] = await Promise.all([
+      fetchCached(MODELS + 'ch_PP-OCRv4_det_infer.onnx').then(r => r.arrayBuffer()),
+      fetchCached(MODELS + 'ch_PP-OCRv4_rec_infer.onnx').then(r => r.arrayBuffer()),
+      fetchCached(MODELS + 'ppocr_keys_v1.txt').then(r => r.text())]);
+    $('status').textContent = '正在准备识别模型…';
+    const det = await ort.InferenceSession.create(detBuf), rec = await ort.InferenceSession.create(recBuf);
+    paddle = { det, rec, dict: [...dictTxt.split('\n'), ' '] };
+    return paddle;
+  }
+  function regionPixels(region){
+    return new Promise(res => {
+      const img = new Image(); img.onload = () => {
+        const r = region || {x:0, y:0, w:1, h:1};
+        const sx = r.x*img.width, sy = r.y*img.height, sw = r.w*img.width, sh = r.h*img.height;
+        const k = Math.min(2, 2000 / Math.max(sw, sh));
+        const c = document.createElement('canvas'); c.width = Math.round(sw*k); c.height = Math.round(sh*k);
+        const g = c.getContext('2d'); g.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+        res(g.getImageData(0, 0, c.width, c.height));
+      };
+      img.src = photo.src;
+    });
+  }
+  async function ocrPaddle(region){
+    const P = await loadPaddle();
+    $('status').textContent = '正在找文字位置…';
+    const img = await regionPixels(region);
+    const text = await PPOCR.run(ort, P.det, P.rec, P.dict, img, (i, n) => { $('status').textContent = `正在识别第 ${i}/${n} 行…`; });
+    return fixOcr(text);
+  }
+  async function ocrTess(region){
+    if(!window.Tesseract){ $('status').textContent = '正在加载 Tesseract（约几 MB）…'; await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); }
+    if(!worker){ $('status').textContent = '正在准备英文识别…'; worker = await Tesseract.createWorker('eng'); }
+    $('status').textContent = '正在识别文字…';
+    const { data } = await worker.recognize(await prepare(region));
+    return data.text;
+  }
   async function doOCR(region){
     if(!curFile) return;
+    const t0 = Date.now(); let used = engine(), text;
     try{
-      if(!window.Tesseract){ $('status').textContent = '首次使用，正在加载识别程序（约几 MB）…'; await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); }
-      if(!worker){ $('status').textContent = '正在准备英文识别…'; worker = await Tesseract.createWorker('eng'); }
-      $('status').textContent = '正在识别文字…';
-      const img = await prepare(region);
-      const { data } = await worker.recognize(img);
-      $('txt').value = data.text.trim();
+      if(used === 'paddle'){
+        try{ text = await ocrPaddle(region); }
+        catch(err){ $('status').textContent = 'PaddleOCR 出错（' + (err && err.message || err) + '），改用 Tesseract…'; used = 'tess'; text = await ocrTess(region); }
+      } else text = await ocrTess(region);
+      $('txt').value = text.trim();
       $('crop').style.display = 'none';
       run();
-      $('status').textContent += '。拍照识别可能有错字，可在上面文本框修改后再点“识别”。';
+      $('status').textContent += `。用 ${used === 'paddle' ? 'PaddleOCR' : 'Tesseract'}，${((Date.now()-t0)/1000).toFixed(1)} 秒。如有错字，可在上面修改后再点“识别”。`;
     }catch(err){ $('status').textContent = '识别失败：' + (err && err.message || err) + '。可以改用 Google Lens 复制文字。'; }
   }
 
