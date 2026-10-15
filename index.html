@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ingredient Scanner - 配料扫描仪</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            background-color: #f3f4f6; /* Tailwind gray-100 */
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* Hide scrollbar for clean app look */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Mock Database (In a real app, this would be a loaded JSON or SQLite)
+        const ingredientDB = {
+            'sodium nitrite': { zh: '亚硝酸钠', status: 'red', desc: '防腐剂，过量有害' },
+            'water': { zh: '水', status: 'green', desc: '基础原料' },
+            'high fructose corn syrup': { zh: '高果糖浆', status: 'red', desc: '添加糖，易致胖' },
+            'citric acid': { zh: '柠檬酸', status: 'green', desc: '酸度调节剂，安全' },
+            'monosodium glutamate': { zh: '味精 (MSG)', status: 'yellow', desc: '增味剂，部分人敏感' },
+            'wheat flour': { zh: '小麦粉', status: 'green', desc: '基础原料' },
+            'aspartame': { zh: '阿斯巴甜', status: 'yellow', desc: '人工代糖，争议成分' },
+            'palm oil': { zh: '棕榈油', status: 'yellow', desc: '含较高饱和脂肪' },
+            'soybean oil': { zh: '大豆油', status: 'green', desc: '植物油脂' },
+            'salt': { zh: '盐', status: 'yellow', desc: '注意钠摄入量' },
+            'sugar': { zh: '糖', status: 'yellow', desc: '添加糖，注意适量' },
+            'potassium sorbate': { zh: '山梨酸钾', status: 'green', desc: '相对安全的防腐剂' },
+            'carrageenan': { zh: '卡拉胶', status: 'yellow', desc: '增稠剂，可能引起肠胃不适' },
+            'red 40': { zh: '诱惑红 (色素)', status: 'red', desc: '人工色素，避免儿童食用' }
+        };
+
+        const App = () => {
+            const [inputText, setInputText] = useState('');
+            const [results, setResults] = useState([]);
+            const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+            // Trigger Lucide icons processing
+            useEffect(() => {
+                lucide.createIcons();
+            });
+
+            const handleAnalyze = () => {
+                setIsAnalyzing(true);
+                
+                // Simulate a slight delay for "processing" feel
+                setTimeout(() => {
+                    if (!inputText.trim()) {
+                        setResults([]);
+                        setIsAnalyzing(false);
+                        return;
+                    }
+
+                    // Parse ingredients: split by comma, remove extra spaces, ignore empty
+                    const rawIngredients = inputText.split(/[,，\n]/).map(item => item.trim()).filter(item => item.length > 0);
+                    
+                    const parsedResults = rawIngredients.map(ing => {
+                        const normalized = ing.toLowerCase();
+                        const match = ingredientDB[normalized];
+                        
+                        if (match) {
+                            return { name: ing, ...match };
+                        } else {
+                            return { name: ing, zh: '未知成分', status: 'unknown', desc: '数据库暂无记录' };
+                        }
+                    });
+
+                    // Sort results: Red -> Yellow -> Green -> Unknown
+                    const statusOrder = { 'red': 1, 'yellow': 2, 'green': 3, 'unknown': 4 };
+                    parsedResults.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+
+                    setResults(parsedResults);
+                    setIsAnalyzing(false);
+                }, 400);
+            };
+
+            const simulateScan = () => {
+                const sampleText = "Water, Wheat Flour, High Fructose Corn Syrup, Soybean Oil, Salt, Monosodium Glutamate, Carrageenan, Sodium Nitrite, Red 40, Artificial Flavor";
+                setInputText(sampleText);
+                // Auto trigger analysis after simulation
+                setTimeout(() => {
+                    document.getElementById('analyze-btn').click();
+                }, 100);
+            };
+
+            const getStatusConfig = (status) => {
+                switch (status) {
+                    case 'red': return { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', badge: 'bg-red-500', label: '避免' };
+                    case 'yellow': return { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', badge: 'bg-yellow-500', label: '注意' };
+                    case 'green': return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-500', label: '安全' };
+                    default: return { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-600', badge: 'bg-gray-400', label: '未知' };
+                }
+            };
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-white shadow-xl overflow-hidden flex flex-col relative">
+                    {/* Header */}
+                    <header className="bg-indigo-600 text-white p-4 sticky top-0 z-10 shadow-md">
+                        <div className="flex items-center justify-between">
+                            <h1 className="text-xl font-bold flex items-center gap-2">
+                                <i data-lucide="scan-line" className="w-6 h-6"></i>
+                                成分透视镜
+                            </h1>
+                            <button className="p-1 rounded-full hover:bg-indigo-500 transition">
+                                <i data-lucide="info" className="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* Main Content */}
+                    <main className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto pb-24">
+                        
+                        {/* Input Area */}
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
+                            <label className="text-sm font-semibold text-gray-700 mb-2 flex justify-between items-center">
+                                <span>输入英文成分表</span>
+                                <button 
+                                    onClick={simulateScan}
+                                    className="text-xs text-indigo-600 flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-md hover:bg-indigo-100 transition"
+                                >
+                                    <i data-lucide="camera" className="w-3 h-3"></i> 模拟扫描
+                                </button>
+                            </label>
+                            <textarea
+                                value={inputText}
+                                onChange={(e) => setInputText(e.target.value)}
+                                placeholder="例如: Water, Sugar, Citric Acid..."
+                                className="w-full h-32 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition resize-none"
+                            ></textarea>
+                            
+                            <button 
+                                id="analyze-btn"
+                                onClick={handleAnalyze}
+                                disabled={isAnalyzing}
+                                className={`w-full mt-3 py-3 rounded-lg font-bold text-white shadow-md transition-all flex justify-center items-center gap-2
+                                    ${isAnalyzing ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98]'}`}
+                            >
+                                {isAnalyzing ? (
+                                    <><i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i> 分析中...</>
+                                ) : (
+                                    <><i data-lucide="search" className="w-5 h-5"></i> 开始分析</>
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Results Area */}
+                        {results.length > 0 && (
+                            <div className="mt-2 space-y-3">
+                                <div className="flex justify-between items-end mb-1 px-1">
+                                    <h2 className="text-sm font-bold text-gray-800">分析结果 ({results.length})</h2>
+                                    <div className="flex gap-2 text-[10px] text-gray-500 font-medium">
+                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div>不健康</span>
+                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow-500"></div>注意</span>
+                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div>正常</span>
+                                    </div>
+                                </div>
+
+                                {results.map((item, index) => {
+                                    const config = getStatusConfig(item.status);
+                                    return (
+                                        <div key={index} className={`p-3 rounded-xl border ${config.bg} ${config.border} shadow-sm flex items-start gap-3 transition-all animate-in fade-in slide-in-from-bottom-2 duration-300`} style={{animationDelay: `${index * 50}ms`}}>
+                                            {/* Status Dot */}
+                                            <div className="mt-1 flex-shrink-0">
+                                                <div className={`w-3 h-3 rounded-full ${config.badge} shadow-sm`}></div>
+                                            </div>
+                                            
+                                            {/* Content */}
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <h3 className={`font-bold text-base ${config.text} leading-tight`}>{item.zh}</h3>
+                                                        <p className="text-xs text-gray-500 capitalize mt-0.5 truncate">{item.name}</p>
+                                                    </div>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${config.border} ${config.text} bg-white bg-opacity-50 font-medium whitespace-nowrap`}>
+                                                        {config.label}
+                                                    </span>
+                                                </div>
+                                                <p className="mt-1.5 text-xs text-gray-600 leading-relaxed">
+                                                    {item.desc}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        
+                        {/* Empty State */}
+                        {results.length === 0 && !isAnalyzing && (
+                            <div className="flex-1 flex flex-col items-center justify-center text-gray-400 mt-10">
+                                <i data-lucide="flask-conical" className="w-12 h-12 mb-3 text-gray-300"></i>
+                                <p className="text-sm">输入成分表开始分析，或者</p>
+                                <p className="text-sm">点击"模拟扫描"体验功能</p>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
