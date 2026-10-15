@@ -45,6 +45,11 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
 .type{font-size:12px;color:var(--sub);white-space:nowrap}
 .en{font-size:13px;color:var(--sub)}
 .note{font-size:13px;margin-top:4px}
+.crop{margin-top:12px;display:none}
+.crop .stage{position:relative;touch-action:none;user-select:none;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+.crop img{display:block;width:100%;height:auto;pointer-events:none}
+.crop .box{position:absolute;border:2px solid var(--accent);background:rgba(47,125,79,.15);display:none}
+.crop .tip{font-size:13px;color:var(--sub);margin:6px 0 0}
 .legend{font-size:12px;color:var(--sub);margin-top:22px;border-top:1px solid var(--line);padding-top:12px}
 .legend p{margin:4px 0}
 </style>
@@ -66,6 +71,15 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
     <button id="demo">试一个例子</button>
   </div>
   <p class="hint">推荐用法（安卓）：相机打开 Google Lens → 对准成分表 → 选中文字 → 复制 → 回到这里粘贴。比网页拍照识别更准。</p>
+  <div class="crop" id="crop">
+    <div class="stage" id="stage"><img id="photo" alt=""><div class="box" id="box"></div></div>
+    <p class="tip">用手指在照片上拖一个框，框住成分表那一段。不框就识别整张。</p>
+    <div class="row">
+      <button class="primary" id="ocrSel">识别选中区域</button>
+      <button id="ocrAll">识别整张</button>
+      <button id="cropCancel">取消</button>
+    </div>
+  </div>
   <p class="status" id="status"></p>
 
   <div id="out" hidden>
@@ -478,6 +492,17 @@ function lookupCode(num, letter, roman){
   num = String(parseInt(num,10));
   return byCode[num+(letter||'')+(roman||'')] || byCode[num+(letter||'')] || byCode[num] || null;
 }
+// 从整段文字中截出成分表部分
+function extractIngredients(text){
+  const startRe = /\b(ingredients?|ingredient list)\s*[:：\-]?/i;
+  const m = startRe.exec(text);
+  if(!m) return {text, cut:false};
+  let rest = text.slice(m.index + m[0].length);
+  const stopRe = /(nutrition\s*information|nutrition\s*info|nutritional\s*information|servings?\s*per|serving\s*size|average\s*quantity|per\s*100\s*(g|ml)|\benergy\b|storage|store\s+(in|below|at|refrigerated)|keep\s+refrigerated|refrigerate\s+after|once\s+opened|best\s+before|use\s+by|made\s+in|product\s+of|packed\s+(in|by|for)|manufactured\s+(by|in|for|on)|distributed\s+by|www\.|allergen|allergy\s+advice|may\s+contain|\bcontains\s*:|health\s+star|recycl)/i;
+  const s2 = stopRe.exec(rest);
+  if(s2) rest = rest.slice(0, s2.index);
+  return {text: rest, cut:true};
+}
 function analyze(text){
   let t = ' ' + text + ' ';
   t = t.replace(/-\s*\n\s*/g,'').replace(/\n/g,' ');
@@ -564,8 +589,9 @@ if(typeof document !== 'undefined'){
   function run(){
     const txt = $('txt').value.trim();
     if(!txt){ $('status').textContent = '先粘贴或拍一张成分表。'; return; }
-    last = analyze(txt);
-    $('status').textContent = `共 ${last.length} 项`;
+    const ex = extractIngredients(txt);
+    last = analyze(ex.text);
+    $('status').textContent = `共 ${last.length} 项` + (ex.cut ? '（已自动截取 Ingredients 部分）' : '');
     render();
   }
   $('go').onclick = run;
@@ -591,20 +617,57 @@ if(typeof document !== 'undefined'){
       img.src = URL.createObjectURL(file);
     });
   }
-  $('cam').onchange = async e => {
-    const f = e.target.files[0]; if(!f) return;
+  let curFile = null, sel = null;
+  const stage = $('stage'), box = $('box'), photo = $('photo');
+  $('cam').onchange = e => {
+    const f = e.target.files[0]; e.target.value = ''; if(!f) return;
+    curFile = f; sel = null; box.style.display = 'none';
+    photo.src = URL.createObjectURL(f);
+    $('crop').style.display = 'block';
+    $('status').textContent = '';
+    setTimeout(() => $('crop').scrollIntoView({behavior:'smooth', block:'start'}), 100);
+  };
+  let drag = null;
+  const pos = ev => { const r = stage.getBoundingClientRect();
+    return { x: Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height)) }; };
+  stage.addEventListener('pointerdown', ev => { stage.setPointerCapture(ev.pointerId); drag = pos(ev); sel = null; box.style.display = 'none'; });
+  stage.addEventListener('pointermove', ev => { if(!drag) return; const p = pos(ev);
+    sel = { x: Math.min(drag.x, p.x), y: Math.min(drag.y, p.y), w: Math.abs(p.x - drag.x), h: Math.abs(p.y - drag.y) };
+    Object.assign(box.style, { display:'block', left: sel.x*100+'%', top: sel.y*100+'%', width: sel.w*100+'%', height: sel.h*100+'%' }); });
+  stage.addEventListener('pointerup', () => { drag = null; if(sel && (sel.w < 0.03 || sel.h < 0.03)){ sel = null; box.style.display = 'none'; } });
+  $('cropCancel').onclick = () => { $('crop').style.display = 'none'; curFile = null; };
+  $('ocrSel').onclick = () => doOCR(sel);
+  $('ocrAll').onclick = () => doOCR(null);
+
+  function prepare(region){
+    return new Promise(res => {
+      const img = new Image(); img.onload = () => {
+        const r = region || {x:0, y:0, w:1, h:1};
+        const sx = r.x*img.width, sy = r.y*img.height, sw = r.w*img.width, sh = r.h*img.height;
+        const k = Math.min(2.5, 2000 / Math.max(sw, sh));   // 小区域放大、大图缩小
+        const c = document.createElement('canvas'); c.width = Math.round(sw*k); c.height = Math.round(sh*k);
+        const g = c.getContext('2d'); g.filter = 'grayscale(1) contrast(1.3)';
+        g.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+        c.toBlob(b => res(b), 'image/jpeg', 0.92);
+      };
+      img.src = photo.src;
+    });
+  }
+  async function doOCR(region){
+    if(!curFile) return;
     try{
       if(!window.Tesseract){ $('status').textContent = '首次使用，正在加载识别程序（约几 MB）…'; await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); }
       if(!worker){ $('status').textContent = '正在准备英文识别…'; worker = await Tesseract.createWorker('eng'); }
       $('status').textContent = '正在识别文字…';
-      const img = await shrink(f);
+      const img = await prepare(region);
       const { data } = await worker.recognize(img);
       $('txt').value = data.text.trim();
+      $('crop').style.display = 'none';
       run();
-      $('status').textContent += '（拍照识别可能有错字，可在上面文本框修改后再点“识别”）';
+      $('status').textContent += '。拍照识别可能有错字，可在上面文本框修改后再点“识别”。';
     }catch(err){ $('status').textContent = '识别失败：' + (err && err.message || err) + '。可以改用 Google Lens 复制文字。'; }
-    e.target.value = '';
-  };
+  }
+
 }
 </script>
 </body>
