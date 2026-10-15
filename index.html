@@ -108,6 +108,7 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
     <p><span class="dot d2" style="display:inline-block"></span> 尽量少吃：有较明确的健康担忧，或在其他国家被禁/限用</p>
     <p><span class="dot du" style="display:inline-block"></span> 未识别：可点“查一下”后自己补上，存在这台手机里</p>
     <p>点任意一项可看简短说明。</p>
+    <p>自己补充时的简单原则：天然食材及其简单加工（磨、榨、烤、晒干）算<b>正常</b>；各种糖、饱和脂肪高的油、加工肉、人工甜味剂、有争议的添加剂算<b>留意</b>；反式脂肪、别国禁用的色素、亚硝酸盐类算<b>尽量少吃</b>。</p>
     <p>成分表按含量从多到少排列，越靠前占比越大。分级仅供个人参考，不是医学建议。</p>
   </div>
 </div>
@@ -629,7 +630,17 @@ function norm(s){
 const byCode = {}, byName = {}, aliasList = [];
 function addEntry(e, aliases){
   for(const a of aliases){ const k = norm(a); if(!k) continue; if(!byName[k]){ byName[k]=e; aliasList.push(k); } }
+  if(e.code) return;
+  for(const a of aliases){ const k = norm(a);   // 自动加单数形式：pistachios → pistachio
+    const sg = k.endsWith('ies') ? k.slice(0,-3)+'y' : (k.endsWith('s') && !k.endsWith('ss') && k.length > 4 ? k.slice(0,-1) : '');
+    if(sg && !byName[sg]){ byName[sg]=e; aliasList.push(sg); } }
 }
+// 加工方式修饰词：pistachio paste → 开心果酱（分级沿用原料）
+const MODS = {paste:'酱',butter:'酱',spread:'酱',powder:'粉',flour:'粉',meal:'粉',puree:'泥',pulp:'泥',mash:'泥',pieces:'碎',piece:'碎',chopped:'碎',crushed:'碎',
+  diced:'丁',sliced:'片',flakes:'片',flaked:'片',slivered:'条',juice:'汁',extract:'提取物',concentrate:'浓缩',concentrated:'浓缩',dried:'干',dehydrated:'脱水',
+  roasted:'烤',toasted:'烤',ground:'磨碎',whole:'整颗',natural:'天然',organic:'有机',raw:'生',fresh:'新鲜',frozen:'冷冻',kernels:'仁',kernel:'仁',nibs:'碎粒',
+  seeds:'籽',inclusions:'碎块',coated:'裹衣',blanched:'去皮',unsalted:'无盐',salted:'加盐',sweetened:'加糖',skinless:'去皮',free:'',range:'',australian:'澳洲'};
+const MOD_PRE = new Set(['dried','dehydrated','roasted','toasted','ground','whole','natural','organic','raw','fresh','frozen','chopped','crushed','diced','sliced','flaked','slivered','blanched','unsalted','salted','sweetened','skinless','free','range','australian','concentrated']);
 for(const [c,names,zh,type,r,note] of ADD){
   const nm = names ? names.split('|')[0] : '';
   const e = {code:c, en: nm ? nm.charAt(0).toUpperCase()+nm.slice(1) : 'E'+c, zh, type, r, note, add:true};
@@ -731,6 +742,14 @@ function analyze(text){
     let e = byName[s] || (s.endsWith('s') && byName[s.slice(0,-1)]) || (s.endsWith('es') && byName[s.slice(0,-2)]);
     if(e){ push(e.code?'c'+e.code:'n'+e.zh, {...e, src: orig}); continue; }
     if(classSet.has(s)) continue;
+    // 2b) 修饰词 + 食材，如 almond butter、roasted hazelnuts
+    { const w = s.split(' '); let i = 0, j = w.length;
+      while(i < j && MOD_PRE.has(w[i])) i++;
+      while(j > i && (w[j-1] in MODS)) j--;
+      const core = w.slice(i, j).join(' '), fe = core && byName[core];
+      if(fe && !fe.code && (i > 0 || j < w.length)){
+        const zh = w.slice(0,i).map(x => MODS[x]).join('') + fe.zh.replace(/（.*?）/g,'').split(' / ')[0] + w.slice(j).map(x => MODS[x]).join('');
+        push('n'+zh, {...fe, en: orig.charAt(0).toUpperCase()+orig.slice(1).toLowerCase(), zh, src: orig}); continue; } }
     // 3) 句中找已知名称（可多个）
     const padded = ' '+s+' '; const used = []; const found = [];
     for(const a of aliasList){
@@ -742,6 +761,16 @@ function analyze(text){
       used.push([st,en]); found.push([st, byName[a], a]);
     }
     found.sort((x,y)=>x[0]-y[0]);
+    if(found.length === 1 && !found[0][1].code){
+      const [st0,fe0,a0] = found[0];
+      const before = s.slice(0, Math.max(0,st0-1)).trim().split(' ').filter(Boolean);
+      const after = s.slice(st0 - 1 + a0.length + 1).trim().split(' ').filter(Boolean);
+      if((before.length || after.length) && [...before, ...after].every(w => w in MODS)){
+        const zh = before.map(w => MODS[w]).join('') + fe0.zh.replace(/（.*?）/g,'') + after.map(w => MODS[w]).join('');
+        push('n'+zh, {...fe0, en: orig.charAt(0).toUpperCase()+orig.slice(1).toLowerCase(), zh, src: orig});
+        continue;
+      }
+    }
     let realFound = false;
     for(const [,fe,a] of found){ if(classSet.has(a)) continue; realFound = true; push(fe.code?'c'+fe.code:'n'+fe.zh, {...fe, src: orig}); }
     if(realFound) continue;
