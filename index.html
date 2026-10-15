@@ -1,225 +1,611 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ingredient Scanner - 配料扫描仪</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & ReactDOM -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-    <!-- Babel for JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        body {
-            background-color: #f3f4f6; /* Tailwind gray-100 */
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            -webkit-tap-highlight-color: transparent;
-        }
-        /* Hide scrollbar for clean app look */
-        ::-webkit-scrollbar {
-            width: 0px;
-            background: transparent;
-        }
-    </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f7d4f">
+<title>成分查查</title>
+<style>
+:root{
+  --bg:#f6f5f1; --card:#ffffff; --text:#1d1d1b; --sub:#6b6a66; --line:#e4e2dc;
+  --g:#2f9e5b; --y:#d99a00; --r:#d64541; --u:#9a9892; --accent:#2f7d4f;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#151513; --card:#1f1f1c; --text:#ecebe6; --sub:#a09f99; --line:#33322e;
+    --g:#4cc27d; --y:#f0b429; --r:#f0625d; --u:#7d7c77; --accent:#4cc27d; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans SC","PingFang SC",sans-serif;font-size:16px;line-height:1.45}
+.wrap{max-width:680px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:22px;margin:4px 0 2px}
+.tag{color:var(--sub);font-size:13px;margin:0 0 14px}
+textarea{width:100%;min-height:120px;padding:12px;border:1px solid var(--line);border-radius:12px;
+  background:var(--card);color:var(--text);font-size:15px;resize:vertical}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+button,.btn{flex:1;min-width:90px;padding:12px 10px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);color:var(--text);font-size:15px;font-weight:600;cursor:pointer;text-align:center}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+input[type=file]{display:none}
+.hint{font-size:13px;color:var(--sub);margin-top:10px}
+.status{font-size:14px;color:var(--sub);margin:12px 0 0;min-height:1em}
+.summary{display:flex;gap:6px;margin:16px 0 8px;flex-wrap:wrap}
+.pill{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:var(--card);
+  border:1px solid var(--line);font-size:14px}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.d0{background:var(--g)}.d1{background:var(--y)}.d2{background:var(--r)}.du{background:var(--u)}
+.filters{display:flex;gap:6px;margin-bottom:8px}
+.filters label{font-size:13px;color:var(--sub);display:flex;align-items:center;gap:4px}
+ul{list-style:none;padding:0;margin:0}
+li{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--u);border-radius:10px;
+  padding:10px 12px;margin-bottom:8px}
+li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border-left-color:var(--r)}
+.top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.zh{font-weight:700;font-size:16px}
+.type{font-size:12px;color:var(--sub);white-space:nowrap}
+.en{font-size:13px;color:var(--sub)}
+.note{font-size:13px;margin-top:4px}
+.legend{font-size:12px;color:var(--sub);margin-top:22px;border-top:1px solid var(--line);padding-top:12px}
+.legend p{margin:4px 0}
+</style>
 </head>
 <body>
-    <div id="root"></div>
+<div class="wrap">
+  <h1>成分查查</h1>
+  <p class="tag">英文成分表 → 中文名 + 添加剂分级</p>
 
-    <script type="text/babel">
-        const { useState, useEffect } = React;
+  <textarea id="txt" placeholder="把成分表粘贴到这里（英文）……"></textarea>
+  <div class="row">
+    <button class="primary" id="go">识别</button>
+    <label class="btn" for="cam">📷 拍照识别</label>
+    <input type="file" id="cam" accept="image/*" capture="environment">
+    <button id="clear">清空</button>
+  </div>
+  <div class="row">
+    <button id="paste">📋 从剪贴板粘贴</button>
+    <button id="demo">试一个例子</button>
+  </div>
+  <p class="hint">推荐用法（安卓）：相机打开 Google Lens → 对准成分表 → 选中文字 → 复制 → 回到这里粘贴。比网页拍照识别更准。</p>
+  <p class="status" id="status"></p>
 
-        // Mock Database (In a real app, this would be a loaded JSON or SQLite)
-        const ingredientDB = {
-            'sodium nitrite': { zh: '亚硝酸钠', status: 'red', desc: '防腐剂，过量有害' },
-            'water': { zh: '水', status: 'green', desc: '基础原料' },
-            'high fructose corn syrup': { zh: '高果糖浆', status: 'red', desc: '添加糖，易致胖' },
-            'citric acid': { zh: '柠檬酸', status: 'green', desc: '酸度调节剂，安全' },
-            'monosodium glutamate': { zh: '味精 (MSG)', status: 'yellow', desc: '增味剂，部分人敏感' },
-            'wheat flour': { zh: '小麦粉', status: 'green', desc: '基础原料' },
-            'aspartame': { zh: '阿斯巴甜', status: 'yellow', desc: '人工代糖，争议成分' },
-            'palm oil': { zh: '棕榈油', status: 'yellow', desc: '含较高饱和脂肪' },
-            'soybean oil': { zh: '大豆油', status: 'green', desc: '植物油脂' },
-            'salt': { zh: '盐', status: 'yellow', desc: '注意钠摄入量' },
-            'sugar': { zh: '糖', status: 'yellow', desc: '添加糖，注意适量' },
-            'potassium sorbate': { zh: '山梨酸钾', status: 'green', desc: '相对安全的防腐剂' },
-            'carrageenan': { zh: '卡拉胶', status: 'yellow', desc: '增稠剂，可能引起肠胃不适' },
-            'red 40': { zh: '诱惑红 (色素)', status: 'red', desc: '人工色素，避免儿童食用' }
-        };
+  <div id="out" hidden>
+    <div class="summary" id="sum"></div>
+    <div class="filters"><label><input type="checkbox" id="onlyAdd"> 只看添加剂和需留意的</label></div>
+    <ul id="list"></ul>
+  </div>
 
-        const App = () => {
-            const [inputText, setInputText] = useState('');
-            const [results, setResults] = useState([]);
-            const [isAnalyzing, setIsAnalyzing] = useState(false);
+  <div class="legend">
+    <p><span class="dot d0" style="display:inline-block"></span> 正常：普通食材，或一般认为安全的添加剂</p>
+    <p><span class="dot d1" style="display:inline-block"></span> 留意：适量即可，或安全性有讨论、特定人群需注意</p>
+    <p><span class="dot d2" style="display:inline-block"></span> 尽量少吃：有较明确的健康担忧，或在其他国家被禁/限用</p>
+    <p><span class="dot du" style="display:inline-block"></span> 未识别：数据库里还没有</p>
+    <p>成分表按含量从多到少排列，越靠前占比越大。分级仅供个人参考，不是医学建议。</p>
+  </div>
+</div>
 
-            // Trigger Lucide icons processing
-            useEffect(() => {
-                lucide.createIcons();
-            });
+<script>
+// ===== 数据库 =====
+// 添加剂：[编号, 英文名(|分隔), 中文名, 类别, 分级 0正常/1留意/2少吃, 说明]
+const ADD = [
+['100','curcumin|turmeric','姜黄素','色素',0,'来自姜黄'],
+['101','riboflavin|vitamin b2','核黄素（维生素B2）','色素',0,''],
+['102','tartrazine','柠檬黄','色素',2,'南安普顿研究：与部分儿童多动相关；欧盟须加警示语'],
+['104','quinoline yellow','喹啉黄','色素',2,'南安普顿研究六种色素之一；欧盟须加警示语'],
+['110','sunset yellow|sunset yellow fcf','日落黄','色素',2,'南安普顿研究六种色素之一；欧盟须加警示语'],
+['120','cochineal|carmine|carmines|carminic acid','胭脂虫红','色素',1,'虫源色素，少数人过敏'],
+['122','azorubine|carmoisine','偶氮玉红','色素',2,'南安普顿研究六种色素之一；欧盟须加警示语'],
+['123','','苋菜红','色素',2,'美国禁用'],
+['124','ponceau 4r|ponceau','胭脂红（丽春红4R）','色素',2,'南安普顿研究六种色素之一；美国禁用'],
+['129','allura red|allura red ac','诱惑红','色素',2,'南安普顿研究六种色素之一；欧盟须加警示语'],
+['132','indigotine|indigo carmine','靛蓝','色素',1,'人工合成色素'],
+['133','brilliant blue|brilliant blue fcf','亮蓝','色素',1,'人工合成色素'],
+['140','chlorophyll|chlorophylls','叶绿素','色素',0,''],
+['141','chlorophyll copper complex|copper chlorophyll|copper chlorophyllin','叶绿素铜','色素',0,''],
+['143','fast green fcf','固绿','色素',1,'人工合成色素'],
+['150','caramel colour|caramel color|caramel colouring|caramel','焦糖色（未注明类型）','色素',1,'未注明哪一类；150c/150d 含少量 4-MEI'],
+['150a','plain caramel|caramel i','普通焦糖色','色素',0,''],
+['150b','caustic sulphite caramel|caustic sulfite caramel','亚硫酸焦糖色','色素',1,''],
+['150c','ammonia caramel','氨法焦糖色','色素',1,'含少量 4-甲基咪唑（4-MEI），IARC 2B 类'],
+['150d','sulphite ammonia caramel|sulfite ammonia caramel','亚硫酸铵焦糖色','色素',1,'可乐常用；含少量 4-MEI，IARC 2B 类'],
+['153','vegetable carbon|carbon black','植物炭黑','色素',0,''],
+['155','brown ht','棕色HT','色素',2,'美国、加拿大等禁用'],
+['160a','carotene|beta carotene|carotenes|mixed carotenes','胡萝卜素','色素',0,'维生素A前体'],
+['160b','annatto|annatto extract|bixin|norbixin','胭脂树橙','色素',1,'天然色素，少数人敏感'],
+['160c','paprika extract|paprika oleoresin|capsanthin','辣椒红','色素',0,''],
+['160d','lycopene','番茄红素','色素',0,''],
+['160e','beta apo 8 carotenal','β-阿朴-8′-胡萝卜醛','色素',0,''],
+['161b','lutein','叶黄素','色素',0,''],
+['162','beetroot red|beet red|betanin|beetroot extract','甜菜红','色素',0,''],
+['163','anthocyanins|anthocyanin|grape skin extract','花青素','色素',0,''],
+['170','calcium carbonate','碳酸钙','色素/抗结剂',0,'也用于补钙'],
+['171','titanium dioxide','二氧化钛','色素',2,'欧盟 2022 年起禁用于食品（无法排除遗传毒性）；澳洲仍允许'],
+['172','iron oxide|iron oxides','氧化铁','色素',0,''],
+['200','sorbic acid','山梨酸','防腐剂',0,'较温和的防腐剂'],
+['202','potassium sorbate','山梨酸钾','防腐剂',0,'较温和的防腐剂'],
+['203','calcium sorbate','山梨酸钙','防腐剂',0,''],
+['210','benzoic acid','苯甲酸','防腐剂',1,'少数人敏感（哮喘、荨麻疹）'],
+['211','sodium benzoate','苯甲酸钠','防腐剂',1,'与维生素C同在饮料中可生成微量苯；少数人敏感'],
+['212','potassium benzoate','苯甲酸钾','防腐剂',1,'同苯甲酸钠'],
+['213','calcium benzoate','苯甲酸钙','防腐剂',1,'同苯甲酸钠'],
+['220','sulphur dioxide|sulfur dioxide','二氧化硫','防腐剂',1,'亚硫酸盐类：可诱发哮喘'],
+['221','sodium sulphite|sodium sulfite','亚硫酸钠','防腐剂',1,'亚硫酸盐类：可诱发哮喘'],
+['222','sodium bisulphite|sodium bisulfite','亚硫酸氢钠','防腐剂',1,'亚硫酸盐类'],
+['223','sodium metabisulphite|sodium metabisulfite','焦亚硫酸钠','防腐剂',1,'亚硫酸盐类：可诱发哮喘'],
+['224','potassium metabisulphite|potassium metabisulfite','焦亚硫酸钾','防腐剂',1,'亚硫酸盐类，葡萄酒常见'],
+['225','potassium sulphite|potassium sulfite','亚硫酸钾','防腐剂',1,'亚硫酸盐类'],
+['228','potassium bisulphite|potassium bisulfite','亚硫酸氢钾','防腐剂',1,'亚硫酸盐类'],
+['234','nisin','乳酸链球菌素','防腐剂',0,'天然来源'],
+['235','natamycin|pimaricin','纳他霉素','防腐剂',0,'奶酪表面常用'],
+['249','potassium nitrite','亚硝酸钾','防腐剂',2,'加工肉类用；可形成亚硝胺'],
+['250','sodium nitrite','亚硝酸钠','防腐剂',2,'火腿培根常见；可形成亚硝胺；加工肉为 IARC 1 类致癌物'],
+['251','sodium nitrate','硝酸钠','防腐剂',2,'加工肉类用，体内可转化为亚硝酸盐'],
+['252','potassium nitrate|saltpetre','硝酸钾','防腐剂',2,'加工肉类用，体内可转化为亚硝酸盐'],
+['260','acetic acid','乙酸（醋酸）','酸度调节剂',0,'醋的主要成分'],
+['261','potassium acetate','乙酸钾','酸度调节剂',0,''],
+['262','sodium acetate|sodium acetates|sodium diacetate','乙酸钠','防腐剂',0,''],
+['263','calcium acetate','乙酸钙','酸度调节剂',0,''],
+['270','lactic acid','乳酸','酸度调节剂',0,''],
+['280','propionic acid','丙酸','防腐剂',1,''],
+['281','sodium propionate','丙酸钠','防腐剂',1,''],
+['282','calcium propionate','丙酸钙','防腐剂',1,'面包常见；小规模研究报告儿童易怒、睡眠问题，证据有限'],
+['283','potassium propionate','丙酸钾','防腐剂',1,''],
+['290','carbon dioxide','二氧化碳','其他',0,''],
+['296','malic acid','苹果酸','酸度调节剂',0,''],
+['297','fumaric acid','富马酸','酸度调节剂',0,''],
+['300','ascorbic acid|vitamin c','抗坏血酸（维生素C）','抗氧化剂',0,''],
+['301','sodium ascorbate','抗坏血酸钠','抗氧化剂',0,''],
+['302','calcium ascorbate','抗坏血酸钙','抗氧化剂',0,''],
+['304','ascorbyl palmitate','抗坏血酸棕榈酸酯','抗氧化剂',0,''],
+['306','tocopherols|mixed tocopherols|tocopherol|vitamin e|tocopherol concentrate','生育酚（维生素E）','抗氧化剂',0,''],
+['307','alpha tocopherol|dl alpha tocopherol','α-生育酚','抗氧化剂',0,''],
+['315','erythorbic acid|isoascorbic acid','异抗坏血酸','抗氧化剂',0,'火腿等加工肉常见'],
+['316','sodium erythorbate|sodium isoascorbate','异抗坏血酸钠','抗氧化剂',0,'火腿等加工肉常见'],
+['310','propyl gallate','没食子酸丙酯','抗氧化剂',1,'合成抗氧化剂，少数人敏感'],
+['319','tbhq|tert butylhydroquinone|tertiary butylhydroquinone','特丁基对苯二酚','抗氧化剂',1,'合成抗氧化剂；限量内允许，高剂量动物实验有担忧'],
+['320','bha|butylated hydroxyanisole','丁基羟基茴香醚','抗氧化剂',2,'IARC 2B 类（可能致癌）'],
+['321','bht|butylated hydroxytoluene','二丁基羟基甲苯','抗氧化剂',1,'合成抗氧化剂，安全性仍有讨论'],
+['322','lecithin|lecithins|soy lecithin|soya lecithin|sunflower lecithin|lecithin soy|lecithin soya','卵磷脂','乳化剂',0,'常来自大豆或葵花籽'],
+['325','sodium lactate','乳酸钠','酸度调节剂',0,''],
+['326','potassium lactate','乳酸钾','酸度调节剂',0,''],
+['327','calcium lactate','乳酸钙','酸度调节剂',0,''],
+['330','citric acid','柠檬酸','酸度调节剂',0,''],
+['331','sodium citrate|sodium citrates|trisodium citrate','柠檬酸钠','酸度调节剂',0,''],
+['332','potassium citrate|potassium citrates','柠檬酸钾','酸度调节剂',0,''],
+['333','calcium citrate|calcium citrates','柠檬酸钙','酸度调节剂',0,''],
+['334','tartaric acid','酒石酸','酸度调节剂',0,''],
+['335','sodium tartrate','酒石酸钠','酸度调节剂',0,''],
+['336','potassium tartrate|cream of tartar|potassium bitartrate','酒石酸钾（塔塔粉）','酸度调节剂',0,''],
+['338','phosphoric acid','磷酸','酸度调节剂',1,'可乐常见；磷摄入过多不利骨骼、肾脏'],
+['339','sodium phosphate|sodium phosphates|disodium phosphate|trisodium phosphate|monosodium phosphate','磷酸钠','酸度调节剂',1,'添加磷酸盐吸收率高，过量与肾脏、心血管风险相关'],
+['340','potassium phosphate|potassium phosphates|dipotassium phosphate','磷酸钾','酸度调节剂',1,'添加磷酸盐，同上'],
+['341','calcium phosphate|calcium phosphates|tricalcium phosphate|dicalcium phosphate|monocalcium phosphate','磷酸钙','酸度调节剂',0,'也用于补钙'],
+['350','sodium malate','苹果酸钠','酸度调节剂',0,''],
+['352','calcium malate','苹果酸钙','酸度调节剂',0,''],
+['365','sodium fumarate','富马酸钠','酸度调节剂',0,''],
+['375','niacin|nicotinic acid|nicotinamide|niacinamide','烟酸（维生素B3）','营养强化',0,''],
+['400','alginic acid','海藻酸','增稠剂',0,'海藻来源'],
+['401','sodium alginate','海藻酸钠','增稠剂',0,'海藻来源'],
+['402','potassium alginate','海藻酸钾','增稠剂',0,''],
+['404','calcium alginate','海藻酸钙','增稠剂',0,''],
+['405','propylene glycol alginate','海藻酸丙二醇酯','增稠剂',0,''],
+['406','agar|agar agar','琼脂','增稠剂',0,''],
+['407','carrageenan|carrageenans','卡拉胶','增稠剂',1,'动物研究提示可能引发肠道炎症，结论有争议'],
+['407a','processed eucheuma seaweed','加工琼枝麒麟菜','增稠剂',1,'与卡拉胶类似'],
+['410','locust bean gum|carob bean gum|carob gum','刺槐豆胶','增稠剂',0,''],
+['412','guar gum|guar','瓜尔胶','增稠剂',0,''],
+['413','tragacanth|gum tragacanth','黄芪胶','增稠剂',0,''],
+['414','acacia|gum arabic|acacia gum|arabic gum','阿拉伯胶','增稠剂',0,''],
+['415','xanthan gum|xanthan','黄原胶','增稠剂',0,''],
+['416','karaya gum','刺梧桐胶','增稠剂',0,''],
+['418','gellan gum|gellan','结冷胶','增稠剂',0,''],
+['420','sorbitol|sorbitol syrup','山梨糖醇','甜味剂/保湿剂',1,'糖醇，大量可致腹泻胀气'],
+['421','mannitol','甘露醇','甜味剂',1,'糖醇，大量可致腹泻'],
+['422','glycerol|glycerin|glycerine','甘油','保湿剂',0,''],
+['425','konjac|konjac gum|konjac flour|glucomannan','魔芋胶','增稠剂',0,''],
+['433','polysorbate 80','聚山梨酯80（吐温80）','乳化剂',1,'小鼠研究显示可能影响肠道菌群、促炎，人体证据有限'],
+['435','polysorbate 60','聚山梨酯60','乳化剂',1,'同聚山梨酯80'],
+['436','polysorbate 65','聚山梨酯65','乳化剂',1,'同聚山梨酯80'],
+['440','pectin|pectins','果胶','增稠剂',0,''],
+['442','ammonium phosphatides','磷脂酸铵','乳化剂',0,'巧克力常用'],
+['450','diphosphates|sodium acid pyrophosphate|pyrophosphate|disodium diphosphate|sodium pyrophosphate|tetrasodium pyrophosphate','焦磷酸盐','膨松剂/稳定剂',1,'添加磷酸盐，过量不利肾脏、心血管'],
+['451','triphosphates|sodium tripolyphosphate|pentasodium triphosphate','三聚磷酸盐','稳定剂',1,'添加磷酸盐；肉类、海鲜保水常用'],
+['452','polyphosphates|sodium polyphosphate|sodium hexametaphosphate','多聚磷酸盐','稳定剂',1,'添加磷酸盐；肉类保水常用'],
+['460','cellulose|microcrystalline cellulose|powdered cellulose','纤维素','增稠剂/抗结剂',0,''],
+['461','methylcellulose|methyl cellulose','甲基纤维素','增稠剂',0,'植物肉常用'],
+['463','hydroxypropyl cellulose','羟丙基纤维素','增稠剂',0,''],
+['464','hydroxypropyl methylcellulose|hpmc|hypromellose','羟丙基甲基纤维素','增稠剂',0,''],
+['466','sodium carboxymethylcellulose|carboxymethylcellulose|cellulose gum|cmc','羧甲基纤维素钠','增稠剂',1,'小鼠及小规模人体试验提示可能影响肠道菌群'],
+['470','fatty acid salts|magnesium stearate|calcium stearate','脂肪酸盐（硬脂酸盐）','乳化剂/抗结剂',0,''],
+['471','mono and diglycerides of fatty acids|mono and diglycerides|mono and di glycerides|monoglycerides|diglycerides|glyceryl monostearate|mono and diglycerides of vegetable fatty acids','单、双甘油脂肪酸酯','乳化剂',1,'最常见乳化剂之一，可能带微量反式脂肪；多见于超加工食品'],
+['472a','acetic acid esters of mono and diglycerides','乙酰化单双甘油酯','乳化剂',0,''],
+['472b','lactic acid esters of mono and diglycerides','乳酸单双甘油酯','乳化剂',0,''],
+['472c','citric acid esters of mono and diglycerides','柠檬酸单双甘油酯','乳化剂',0,''],
+['472e','datem|diacetyltartaric acid esters of mono and diglycerides|diacetyl tartaric acid esters of mono and diglycerides','双乙酰酒石酸单双甘油酯','乳化剂',0,'面包改良剂常见'],
+['473','sucrose esters of fatty acids|sucrose esters','蔗糖脂肪酸酯','乳化剂',0,''],
+['475','polyglycerol esters of fatty acids|polyglycerol esters','聚甘油脂肪酸酯','乳化剂',0,''],
+['476','polyglycerol polyricinoleate|pgpr','聚蓖麻醇酸聚甘油酯','乳化剂',0,'巧克力常用'],
+['477','propylene glycol esters of fatty acids','丙二醇脂肪酸酯','乳化剂',0,''],
+['481','sodium stearoyl lactylate|sodium stearoyl 2 lactylate|ssl','硬脂酰乳酸钠','乳化剂',0,'面包常用'],
+['482','calcium stearoyl lactylate|csl','硬脂酰乳酸钙','乳化剂',0,''],
+['491','sorbitan monostearate','山梨醇酐单硬脂酸酯（司盘60）','乳化剂',0,''],
+['492','sorbitan tristearate','山梨醇酐三硬脂酸酯','乳化剂',0,''],
+['500','sodium carbonate|sodium bicarbonate|sodium hydrogen carbonate|bicarbonate of soda|baking soda','碳酸钠 / 小苏打','膨松剂',0,'500(ii) 即小苏打'],
+['501','potassium carbonate|potassium bicarbonate','碳酸钾','膨松剂',0,'碱水面常用'],
+['503','ammonium carbonate|ammonium bicarbonate|ammonium hydrogen carbonate','碳酸氢铵（臭粉）','膨松剂',0,''],
+['504','magnesium carbonate','碳酸镁','抗结剂',0,''],
+['507','hydrochloric acid','盐酸','酸度调节剂',0,'加工助剂'],
+['508','potassium chloride','氯化钾','其他',0,'常用作低钠盐'],
+['509','calcium chloride','氯化钙','固化剂',0,''],
+['511','magnesium chloride','氯化镁（卤水）','固化剂',0,'豆腐凝固剂'],
+['516','calcium sulphate|calcium sulfate','硫酸钙（石膏）','固化剂',0,'豆腐凝固剂'],
+['524','sodium hydroxide','氢氧化钠','酸度调节剂',0,'加工助剂'],
+['525','potassium hydroxide','氢氧化钾','酸度调节剂',0,''],
+['529','calcium oxide','氧化钙','酸度调节剂',0,''],
+['541','sodium aluminium phosphate|sodium aluminum phosphate','磷酸铝钠','膨松剂',1,'含铝，不宜长期大量'],
+['551','silicon dioxide|silica','二氧化硅','抗结剂',0,''],
+['552','calcium silicate','硅酸钙','抗结剂',0,''],
+['554','sodium aluminosilicate','硅铝酸钠','抗结剂',1,'含铝'],
+['556','calcium aluminium silicate','硅铝酸钙','抗结剂',1,'含铝'],
+['570','stearic acid','硬脂酸','其他',0,''],
+['575','glucono delta lactone|gluconodeltalactone|gdl','葡萄糖酸-δ-内酯','酸度调节剂',0,'内酯豆腐凝固剂'],
+['576','sodium gluconate','葡萄糖酸钠','酸度调节剂',0,''],
+['577','potassium gluconate','葡萄糖酸钾','酸度调节剂',0,''],
+['578','calcium gluconate','葡萄糖酸钙','酸度调节剂',0,''],
+['620','glutamic acid','谷氨酸','增味剂',0,''],
+['621','monosodium glutamate|msg|monosodium l glutamate','谷氨酸钠（味精）','增味剂',0,'大量研究认为正常食用安全；少数人自述敏感'],
+['622','monopotassium glutamate','谷氨酸钾','增味剂',0,''],
+['627','disodium guanylate|disodium 5 guanylate','鸟苷酸二钠','增味剂',0,'常与味精搭配；痛风人群留意（嘌呤）'],
+['631','disodium inosinate|disodium 5 inosinate','肌苷酸二钠','增味剂',0,'常与味精搭配；痛风人群留意（嘌呤）'],
+['635','disodium 5 ribonucleotides|disodium ribonucleotides|ribonucleotides','呈味核苷酸二钠（I+G）','增味剂',0,'常与味精搭配；痛风人群留意（嘌呤）'],
+['636','maltol','麦芽酚','增味剂',0,''],
+['640','glycine','甘氨酸','增味剂',0,''],
+['900','dimethylpolysiloxane|polydimethylsiloxane|dimethicone','二甲基聚硅氧烷','消泡剂',0,'炸油防起泡'],
+['901','beeswax','蜂蜡','被膜剂',0,''],
+['903','carnauba wax','巴西棕榈蜡','被膜剂',0,''],
+['904','shellac','虫胶','被膜剂',0,''],
+['905','paraffin|microcrystalline wax|mineral oil','石蜡 / 矿物油','被膜剂',1,''],
+['920','l cysteine|cysteine','L-半胱氨酸','面粉处理剂',0,''],
+['941','nitrogen','氮气','包装气体',0,''],
+['942','nitrous oxide','一氧化二氮','包装气体',0,'喷射奶油用'],
+['950','acesulfame potassium|acesulfame k|acesulphame potassium|acesulphame k|acesulfame|acesulphame','安赛蜜（AK糖）','甜味剂',1,'人工甜味剂；获批使用，长期影响仍在研究'],
+['951','aspartame','阿斯巴甜','甜味剂',1,'2023 年 IARC 列为 2B 类，JECFA 维持每日允许量；苯丙酮尿症患者禁用'],
+['952','cyclamate|sodium cyclamate|cyclamates','甜蜜素','甜味剂',1,'美国禁用，澳洲、欧盟允许'],
+['953','isomalt','异麦芽酮糖醇','甜味剂',1,'糖醇，大量可致腹泻'],
+['954','saccharin|sodium saccharin|saccharins','糖精','甜味剂',1,'人工甜味剂'],
+['955','sucralose','三氯蔗糖（蔗糖素）','甜味剂',1,'人工甜味剂；有研究关注肠道菌群及高温烘焙下的稳定性'],
+['956','alitame','阿力甜','甜味剂',1,'人工甜味剂'],
+['957','thaumatin','索马甜','甜味剂',0,'天然蛋白甜味剂'],
+['960','steviol glycosides|stevia|stevia extract|rebaudioside a|reb a|stevia leaf extract','甜菊糖苷','甜味剂',0,'天然来源甜味剂'],
+['961','neotame','纽甜','甜味剂',1,'人工甜味剂'],
+['962','aspartame acesulfame salt','阿斯巴甜-安赛蜜盐','甜味剂',1,'人工甜味剂'],
+['965','maltitol|maltitol syrup|hydrogenated glucose syrup','麦芽糖醇','甜味剂',1,'糖醇，大量可致腹泻；“无糖”巧克力常用'],
+['966','lactitol','乳糖醇','甜味剂',1,'糖醇，大量可致腹泻'],
+['967','xylitol','木糖醇','甜味剂',0,'糖醇，大量可致腹泻；对狗有毒'],
+['968','erythritol','赤藓糖醇','甜味剂',1,'2023 年研究发现血中浓度与血栓风险相关，因果未定'],
+['969','advantame','爱德万甜','甜味剂',1,'人工甜味剂'],
+['1400','dextrins|dextrin','糊精','增稠剂',0,''],
+['1404','oxidised starch|oxidized starch','氧化淀粉','增稠剂',0,'变性淀粉'],
+['1410','monostarch phosphate','单淀粉磷酸酯','增稠剂',0,'变性淀粉'],
+['1412','distarch phosphate','磷酸化二淀粉','增稠剂',0,'变性淀粉'],
+['1413','phosphated distarch phosphate','磷酸酯双淀粉','增稠剂',0,'变性淀粉'],
+['1414','acetylated distarch phosphate','乙酰化二淀粉磷酸酯','增稠剂',0,'变性淀粉'],
+['1420','starch acetate|acetylated starch','乙酸淀粉','增稠剂',0,'变性淀粉'],
+['1422','acetylated distarch adipate','乙酰化双淀粉己二酸酯','增稠剂',0,'变性淀粉，很常见'],
+['1440','hydroxypropyl starch','羟丙基淀粉','增稠剂',0,'变性淀粉'],
+['1442','hydroxypropyl distarch phosphate','羟丙基二淀粉磷酸酯','增稠剂',0,'变性淀粉，很常见'],
+['1450','starch sodium octenyl succinate|sodium starch octenyl succinate','辛烯基琥珀酸淀粉钠','乳化剂',0,'变性淀粉'],
+['1505','triethyl citrate','柠檬酸三乙酯','其他',0,''],
+['1510','ethanol','乙醇','其他',0,''],
+['1520','propylene glycol','丙二醇','保湿剂',0,''],
+['1521','polyethylene glycol','聚乙二醇','其他',0,''],
+];
 
-            const handleAnalyze = () => {
-                setIsAnalyzing(true);
-                
-                // Simulate a slight delay for "processing" feel
-                setTimeout(() => {
-                    if (!inputText.trim()) {
-                        setResults([]);
-                        setIsAnalyzing(false);
-                        return;
-                    }
+// 普通食材：[英文名, 中文名, 类别, 分级, 说明]
+const FOOD = [
+['sugar|cane sugar|white sugar|caster sugar|icing sugar|brown sugar|raw sugar|sucrose|cane sugar syrup','糖（蔗糖）','添加糖',1,'添加糖，看排位靠不靠前'],
+['glucose|dextrose|glucose solids','葡萄糖','添加糖',1,'添加糖'],
+['glucose syrup|corn syrup|rice syrup|rice malt syrup|tapioca syrup|sugar syrup','葡萄糖浆 / 糖浆','添加糖',1,'添加糖'],
+['high fructose corn syrup|hfcs|fructose glucose syrup|glucose fructose syrup|isoglucose','果葡糖浆','添加糖',1,'添加糖，与蔗糖相近'],
+['golden syrup','金糖浆','添加糖',1,'添加糖'],
+['maple syrup','枫糖浆','添加糖',1,'添加糖'],
+['fructose','果糖','添加糖',1,'添加糖'],
+['invert sugar|invert syrup','转化糖','添加糖',1,'添加糖'],
+['honey','蜂蜜','添加糖',1,'天然，但仍算添加糖'],
+['molasses|treacle','糖蜜','添加糖',1,'添加糖'],
+['maltodextrin','麦芽糊精','添加糖',1,'升糖很快'],
+['fruit juice concentrate|juice concentrate|apple juice concentrate|concentrated fruit juice','浓缩果汁','添加糖',1,'按添加糖看待'],
+['malt extract|barley malt extract|malt','麦芽提取物','食材',0,'含麦芽糖、麸质'],
+['lactose','乳糖','食材',0,''],
+['salt|sea salt|iodised salt|iodized salt','盐','食材',0,'看营养表的钠含量'],
+['water|filtered water','水','食材',0,''],
+['carbonated water|sparkling water','碳酸水','食材',0,''],
+['vegetable oil|vegetable oils','植物油（未注明）','油脂',0,'看括号里是哪种油'],
+['palm oil|palm|palm kernel oil|palm olein|palm fat','棕榈油','油脂',1,'饱和脂肪高'],
+['canola oil|canola|rapeseed oil','菜籽油','油脂',0,''],
+['sunflower oil|sunflower|high oleic sunflower oil','葵花籽油','油脂',0,''],
+['olive oil|extra virgin olive oil','橄榄油','油脂',0,''],
+['coconut oil|coconut fat','椰子油','油脂',1,'饱和脂肪高'],
+['soybean oil|soy oil|soya oil|soya bean oil','大豆油','油脂',0,''],
+['cottonseed oil','棉籽油','油脂',0,''],
+['rice bran oil','米糠油','油脂',0,''],
+['peanut oil','花生油','油脂',0,''],
+['sesame oil','芝麻油','油脂',0,''],
+['hydrogenated vegetable oil|hydrogenated oil|hydrogenated fat|partially hydrogenated vegetable oil|partially hydrogenated oil|hydrogenated palm oil|hydrogenated vegetable fat','氢化植物油','油脂',2,'可能含反式脂肪'],
+['shortening|vegetable shortening','起酥油','油脂',1,'饱和脂肪高，可能含反式脂肪'],
+['margarine','人造黄油','油脂',1,''],
+['vegetable fat|vegetable fats','植物脂肪','油脂',1,'常是棕榈类'],
+['butter|butter fat|butterfat|milk fat|anhydrous milk fat','黄油 / 乳脂','油脂',0,''],
+['lard|beef tallow|tallow','猪油 / 牛油','油脂',1,'饱和脂肪高'],
+['cocoa butter','可可脂','油脂',0,''],
+['cream|thickened cream','奶油','食材',0,''],
+['milk|full cream milk|whole milk|reconstituted milk','牛奶','食材',0,''],
+['skim milk|skim milk powder|skimmed milk powder|milk powder|whole milk powder|full cream milk powder','奶粉','食材',0,''],
+['milk solids|milk solid','乳固体','食材',0,''],
+['whey|whey powder|whey protein|whey protein concentrate|whey protein isolate','乳清 / 乳清蛋白','食材',0,''],
+['casein|caseinate|sodium caseinate|calcium caseinate|milk protein|milk protein concentrate','酪蛋白（乳蛋白）','食材',0,''],
+['cheese|cheddar cheese|parmesan cheese','奶酪','食材',0,''],
+['yoghurt|yogurt','酸奶','食材',0,''],
+['buttermilk','酪乳','食材',0,''],
+['egg|eggs|whole egg|egg powder|whole egg powder','鸡蛋','食材',0,''],
+['egg white|egg albumen|albumen','蛋清','食材',0,''],
+['egg yolk','蛋黄','食材',0,''],
+['wheat flour|flour|plain flour|white flour|wheat','小麦粉','食材',0,''],
+['wholemeal flour|whole wheat flour|wholemeal wheat flour|wholegrain wheat|wholemeal|wholegrain wheat flour','全麦粉','食材',0,''],
+['wheat gluten|gluten|vital wheat gluten','小麦麸质（谷朊粉）','食材',0,''],
+['wheat starch','小麦淀粉','食材',0,''],
+['rice|white rice|brown rice','大米','食材',0,''],
+['rice flour','米粉','食材',0,''],
+['corn|maize','玉米','食材',0,''],
+['corn starch|cornflour|corn flour|maize starch|maize thickener|cornstarch','玉米淀粉','食材',0,''],
+['tapioca starch|tapioca|tapioca flour','木薯淀粉','食材',0,''],
+['potato starch','马铃薯淀粉','食材',0,''],
+['starch|food starch','淀粉','食材',0,''],
+['modified starch|modified corn starch|modified maize starch|modified tapioca starch|modified potato starch','变性淀粉','增稠剂',0,'通常安全'],
+['oats|rolled oats|oat flour|wholegrain oats','燕麦','食材',0,''],
+['barley','大麦','食材',0,''],
+['rye|rye flour','黑麦','食材',0,''],
+['semolina|durum wheat semolina','粗粒小麦粉','食材',0,''],
+['bran|wheat bran','麸皮','食材',0,''],
+['potato|potatoes|dehydrated potato|potato flakes','土豆','食材',0,''],
+['soy|soya|soybeans|soy beans|soya beans|soybean','大豆','食材',0,''],
+['soy protein|soy protein isolate|soya protein isolate|isolated soy protein|textured vegetable protein|tvp','大豆蛋白','食材',0,''],
+['soy flour|soya flour','大豆粉','食材',0,''],
+['soy sauce','酱油','食材',0,'含盐量高'],
+['peanuts|peanut','花生','食材',0,''],
+['almonds|almond','杏仁','食材',0,''],
+['cashews|cashew','腰果','食材',0,''],
+['hazelnuts|hazelnut','榛子','食材',0,''],
+['tree nuts|nuts','坚果','食材',0,''],
+['sesame seeds|sesame','芝麻','食材',0,''],
+['chickpeas|chickpea','鹰嘴豆','食材',0,''],
+['pea protein','豌豆蛋白','食材',0,''],
+['coconut|desiccated coconut|coconut milk|coconut cream','椰子 / 椰浆','食材',0,''],
+['cocoa|cocoa powder','可可粉','食材',0,''],
+['cocoa mass|cocoa liquor|chocolate liquor','可可液块','食材',0,''],
+['chocolate|milk chocolate|dark chocolate','巧克力','食材',0,''],
+['vanilla|vanilla extract|vanilla bean','香草','食材',0,''],
+['vanillin','香兰素','香料',0,''],
+['flavour|flavours|flavor|flavors|flavouring|flavourings|flavoring|flavorings','香料（未注明）','香料',0,'澳洲标签可不写具体成分'],
+['natural flavour|natural flavours|natural flavor|natural flavors|natural flavouring','天然香料','香料',0,''],
+['artificial flavour|artificial flavours|artificial flavor|artificial flavors','人工香料','香料',1,'具体成分未知'],
+['nature identical flavour|nature identical flavours','天然等同香料','香料',0,''],
+['spices|spice','香辛料','食材',0,''],
+['herbs|herb','香草类','食材',0,''],
+['garlic|garlic powder','大蒜','食材',0,''],
+['onion|onion powder','洋葱','食材',0,''],
+['pepper|black pepper|white pepper','胡椒','食材',0,''],
+['paprika','红椒粉','食材',0,''],
+['chilli|chili|chilli powder','辣椒','食材',0,''],
+['ginger','姜','食材',0,''],
+['cinnamon','肉桂','食材',0,''],
+['tomato|tomatoes|tomato paste|tomato puree','番茄','食材',0,''],
+['vinegar|white vinegar|apple cider vinegar|malt vinegar|spirit vinegar','醋','食材',0,''],
+['yeast|bakers yeast','酵母','食材',0,''],
+['yeast extract|autolysed yeast|autolyzed yeast extract|yeast extract powder','酵母提取物','增味剂',0,'含天然谷氨酸，作用类似味精'],
+['hydrolysed vegetable protein|hydrolyzed vegetable protein|hvp|hydrolysed soy protein|hydrolysed wheat protein|hydrolysed corn protein','水解植物蛋白','增味剂',0,'含天然谷氨酸'],
+['gelatine|gelatin|beef gelatine','明胶','食材',0,'动物来源'],
+['collagen','胶原蛋白','食材',0,''],
+['inulin|chicory root fibre|chicory fibre|chicory root fiber','菊粉（菊苣纤维）','食材',0,'膳食纤维，大量可胀气'],
+['dietary fibre|fibre|fiber|soluble fibre|resistant starch|polydextrose','膳食纤维','食材',0,''],
+['thiamine|thiamin|vitamin b1|thiamine hydrochloride|thiamine mononitrate','硫胺素（维生素B1）','营养强化',0,''],
+['folic acid|folate','叶酸','营养强化',0,''],
+['iron|ferrous sulphate|ferric pyrophosphate|reduced iron','铁','营养强化',0,''],
+['zinc|zinc oxide','锌','营养强化',0,''],
+['vitamin a|retinyl palmitate','维生素A','营养强化',0,''],
+['vitamin d|vitamin d3|cholecalciferol','维生素D','营养强化',0,''],
+['vitamin b12|cyanocobalamin','维生素B12','营养强化',0,''],
+['vitamin b6|pyridoxine|pyridoxine hydrochloride','维生素B6','营养强化',0,''],
+['vitamins|minerals','维生素 / 矿物质','营养强化',0,''],
+['iodine','碘','营养强化',0,''],
+['caffeine','咖啡因','其他',1,'孩子、孕妇留意'],
+['guarana|guarana extract','瓜拉那','其他',1,'含咖啡因'],
+['taurine','牛磺酸','其他',0,''],
+['beef','牛肉','食材',0,''],['pork','猪肉','食材',0,''],['chicken','鸡肉','食材',0,''],
+['fish','鱼','食材',0,''],['prawns|shrimp','虾','食材',0,''],['crustacea|crustaceans','甲壳类','食材',0,''],
+['fruit|fruits','水果','食材',0,''],['apple|apples','苹果','食材',0,''],
+['strawberries|strawberry','草莓','食材',0,''],['raisins|sultanas','葡萄干','食材',0,''],
+['lemon juice','柠檬汁','食材',0,''],['alcohol','酒精','其他',0,''],
+];
 
-                    // Parse ingredients: split by comma, remove extra spaces, ignore empty
-                    const rawIngredients = inputText.split(/[,，\n]/).map(item => item.trim()).filter(item => item.length > 0);
-                    
-                    const parsedResults = rawIngredients.map(ing => {
-                        const normalized = ing.toLowerCase();
-                        const match = ingredientDB[normalized];
-                        
-                        if (match) {
-                            return { name: ing, ...match };
-                        } else {
-                            return { name: ing, zh: '未知成分', status: 'unknown', desc: '数据库暂无记录' };
-                        }
-                    });
+// 只是类别标签的词（识别后不单独列出）
+const CLASS_WORDS = ['emulsifier','emulsifiers','thickener','thickeners','stabiliser','stabilisers','stabilizer','stabilizers',
+'preservative','preservatives','antioxidant','antioxidants','colour','colours','color','colors','colouring','colourings','coloring',
+'natural colour','natural colours','natural color','artificial colour','artificial colours','flavour enhancer','flavour enhancers',
+'flavor enhancer','flavor enhancers','acidity regulator','acidity regulators','food acid','food acids','mineral salt','mineral salts',
+'raising agent','raising agents','leavening','leavening agent','leavening agents','humectant','humectants','anticaking agent',
+'anti caking agent','anticaking agents','anti caking agents','sweetener','sweeteners','artificial sweetener','artificial sweeteners',
+'glazing agent','glazing agents','firming agent','gelling agent','bulking agent','vegetable gum','vegetable gums','flour treatment agent',
+'improver','bread improver','dough conditioner','antifoaming agent','antifoam','foaming agent','emulsifying salt','emulsifying salts',
+'propellant','sequestrant','thickening agent','gelling agents','colour fixative','contains','may contain','traces','ingredients',
+'allergens','allergen','allergy advice','made on equipment','same equipment','processed','manufactured','gluten free','for allergens'];
 
-                    // Sort results: Red -> Yellow -> Green -> Unknown
-                    const statusOrder = { 'red': 1, 'yellow': 2, 'green': 3, 'unknown': 4 };
-                    parsedResults.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+// ===== 建索引 =====
+function norm(s){
+  return s.toLowerCase().replace(/&/g,' and ').replace(/[’'`´]/g,'').replace(/[^a-z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+}
+const byCode = {}, byName = {}, aliasList = [];
+function addEntry(e, aliases){
+  for(const a of aliases){ const k = norm(a); if(!k) continue; if(!byName[k]){ byName[k]=e; aliasList.push(k); } }
+}
+for(const [c,names,zh,type,r,note] of ADD){
+  const e = {code:c, zh, type, r, note, add:true};
+  byCode[c] = e;
+  addEntry(e, names ? names.split('|') : []);
+}
+for(const [names,zh,type,r,note] of FOOD){
+  addEntry({code:'', zh, type, r, note, add: type!=='食材' && type!=='油脂' && type!=='添加糖' && type!=='营养强化'}, names.split('|'));
+}
+const classSet = new Set(CLASS_WORDS.map(norm));
+aliasList.sort((a,b)=>b.length-a.length);
 
-                    setResults(parsedResults);
-                    setIsAnalyzing(false);
-                }, 400);
-            };
+// ===== 解析 =====
+const LEAD = new Set(['ingredients','ingredient','contains','contain','may','traces','trace','of','and','or','also','with','from','added','other','the','less','than','including','includes','made','min','minimum']);
+function stripLead(t){
+  let w = t.split(' ');
+  while(w.length && LEAD.has(w[0])) w.shift();
+  while(w.length && (w[w.length-1]==='and'||w[w.length-1]==='or'||w[w.length-1]==='of')) w.pop();
+  return w.join(' ');
+}
+function lev(a,b){
+  const m=a.length,n=b.length; if(Math.abs(m-n)>2) return 9;
+  let p=Array.from({length:n+1},(_,i)=>i);
+  for(let i=1;i<=m;i++){ const c=[i]; let best=i;
+    for(let j=1;j<=n;j++){ c[j]=Math.min(p[j]+1,c[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1)); if(c[j]<best)best=c[j]; }
+    if(best>2) return 9; p=c; }
+  return p[n];
+}
+function lookupCode(num, letter, roman){
+  num = String(parseInt(num,10));
+  return byCode[num+(letter||'')+(roman||'')] || byCode[num+(letter||'')] || byCode[num] || null;
+}
+function analyze(text){
+  let t = ' ' + text + ' ';
+  t = t.replace(/-\s*\n\s*/g,'').replace(/\n/g,' ');
+  t = t.replace(/\d+(\.\d+)?\s*%/g,' ');                                 // 去掉百分比
+  t = t.replace(/(\d{3,4}[a-fA-F]?)\s*\(\s*(i{1,3}|iv|vi?)\s*\)/gi,'$1$2'); // 500(ii) → 500ii
+  t = t.replace(/\b(e|ins)\s*-?\s*(?=\d{3,4})/gi,' ');                    // E471 / INS 471
+  const parts = t.split(/[,;:()\[\]{}.•·\/]+|\s-\s/);
+  const out = [], seen = new Set();
+  const push = (key, item) => { if(seen.has(key)) return; seen.add(key); out.push(item); };
+  for(let raw of parts){
+    const orig = raw.trim(); if(!orig) continue;
+    let s = norm(orig);
+    // 1) 编号
+    const codeRe = /\b(\d{3,4})([a-f])?(iii|ii|iv|vi|v|i)?\b/g; let m, hadCode=false;
+    while((m = codeRe.exec(s))){
+      const n = parseInt(m[1],10); if(n<100||n>1599) continue;
+      hadCode = true;
+      const e = lookupCode(m[1], m[2], m[3]);
+      const label = m[1]+(m[2]||'');
+      if(e) push('c'+e.code, {...e, src: label});
+      else push('c'+label, {code:label, zh:'未收录编号 '+label, type:'', r:-1, note:'数据库里还没有这个编号', src: label, add:true});
+    }
+    s = s.replace(/\b\d{3,4}[a-f]?(iii|ii|iv|vi|v|i)?\b/g,' ').replace(/\s+/g,' ').trim();
+    s = stripLead(s);
+    if(!s || /^\d+$/.test(s) || s.length<2) continue;
+    if(hadCode && s.split(' ').length<=2 && !byName[s]) continue;   // 如 "Caramel 150d"，以编号为准
+    if(hadCode && byName[s] && byName[s].code) continue;
+    // 2) 完全匹配
+    let e = byName[s] || (s.endsWith('s') && byName[s.slice(0,-1)]) || (s.endsWith('es') && byName[s.slice(0,-2)]);
+    if(e){ push(e.code?'c'+e.code:'n'+e.zh, {...e, src: orig}); continue; }
+    if(classSet.has(s)) continue;
+    // 3) 句中找已知名称（可多个）
+    const padded = ' '+s+' '; const used = []; const found = [];
+    for(const a of aliasList){
+      if(a.length < 3) continue;
+      let idx = padded.indexOf(' '+a+' ');
+      if(idx<0) continue;
+      const st = idx, en = idx + a.length + 1;
+      if(used.some(([x,y]) => st < y && en > x)) continue;
+      used.push([st,en]); found.push([st, byName[a], a]);
+    }
+    found.sort((x,y)=>x[0]-y[0]);
+    let realFound = false;
+    for(const [,fe,a] of found){ if(classSet.has(a)) continue; realFound = true; push(fe.code?'c'+fe.code:'n'+fe.zh, {...fe, src: orig}); }
+    if(realFound) continue;
+    // 只剩类别词？
+    let rest = padded; for(const [st,en] of used) rest = rest.slice(0,st) + ' '.repeat(en-st) + rest.slice(en);
+    for(const c of classSet) rest = (' '+rest+' ').replace(' '+c+' ',' ');
+    if(!rest.trim() || stripLead(norm(rest))==='' ) continue;
+    if(hadCode && rest.trim().split(' ').length<=2) continue;
+    // 4) 模糊匹配（OCR 错字）
+    if(s.length >= 5){
+      let best=null, bd=9; const lim = s.length>=10 ? 2 : 1;
+      for(const a of aliasList){ if(Math.abs(a.length-s.length)>lim) continue; const d = lev(s,a); if(d<bd){bd=d;best=a;} }
+      if(best && bd<=lim){ const fe = byName[best]; push(fe.code?'c'+fe.code:'n'+fe.zh, {...fe, src: orig, fuzzy:true}); continue; }
+    }
+    push('u'+s, {code:'', zh:'未识别', type:'', r:-1, note:'', src: orig, add:false});
+  }
+  return out;
+}
 
-            const simulateScan = () => {
-                const sampleText = "Water, Wheat Flour, High Fructose Corn Syrup, Soybean Oil, Salt, Monosodium Glutamate, Carrageenan, Sodium Nitrite, Red 40, Artificial Flavor";
-                setInputText(sampleText);
-                // Auto trigger analysis after simulation
-                setTimeout(() => {
-                    document.getElementById('analyze-btn').click();
-                }, 100);
-            };
+// ===== 界面 =====
+if(typeof document !== 'undefined'){
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  let last = [];
+  function render(){
+    const only = $('onlyAdd').checked;
+    const items = only ? last.filter(i => i.add || i.r>=1 || i.r===-1) : last;
+    const cnt = {0:0,1:0,2:0,'-1':0}; last.forEach(i => cnt[i.r]++);
+    $('sum').innerHTML =
+      `<span class="pill"><span class="dot d0"></span>正常 ${cnt[0]}</span>`+
+      `<span class="pill"><span class="dot d1"></span>留意 ${cnt[1]}</span>`+
+      `<span class="pill"><span class="dot d2"></span>少吃 ${cnt[2]}</span>`+
+      (cnt[-1] ? `<span class="pill"><span class="dot du"></span>未识别 ${cnt[-1]}</span>` : '');
+    $('list').innerHTML = items.map(i => `
+      <li class="r${i.r}">
+        <div class="top"><span class="zh">${esc(i.zh)}</span><span class="type">${esc(i.type)}${i.code?' · '+esc(i.code):''}</span></div>
+        <div class="en">${esc(i.src)}${i.fuzzy?'（模糊匹配，请核对）':''}</div>
+        ${i.note ? `<div class="note">${esc(i.note)}</div>` : ''}
+      </li>`).join('');
+    $('out').hidden = false;
+  }
+  function run(){
+    const txt = $('txt').value.trim();
+    if(!txt){ $('status').textContent = '先粘贴或拍一张成分表。'; return; }
+    last = analyze(txt);
+    $('status').textContent = `共 ${last.length} 项`;
+    render();
+  }
+  $('go').onclick = run;
+  $('onlyAdd').onchange = render;
+  $('clear').onclick = () => { $('txt').value=''; $('out').hidden=true; $('status').textContent=''; };
+  $('demo').onclick = () => { $('txt').value = 'Ingredients: Wheat Flour (contains Thiamine, Folic Acid), Sugar, Vegetable Oil (Palm, Canola), Glucose Syrup, Cocoa (3%), Salt, Emulsifiers (471, Soy Lecithin), Raising Agents (500ii, 450), Colour (150d), Flavour, Preservative (282), Sweetener (955). Contains: Wheat, Soy.'; run(); };
+  $('paste').onclick = async () => {
+    try{ const t = await navigator.clipboard.readText(); if(t){ $('txt').value = t; run(); } else $('status').textContent='剪贴板是空的。'; }
+    catch(e){ $('status').textContent = '浏览器不允许直接读取剪贴板，请长按文本框手动粘贴。'; }
+  };
 
-            const getStatusConfig = (status) => {
-                switch (status) {
-                    case 'red': return { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', badge: 'bg-red-500', label: '避免' };
-                    case 'yellow': return { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', badge: 'bg-yellow-500', label: '注意' };
-                    case 'green': return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-500', label: '安全' };
-                    default: return { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-600', badge: 'bg-gray-400', label: '未知' };
-                }
-            };
-
-            return (
-                <div className="max-w-md mx-auto min-h-screen bg-white shadow-xl overflow-hidden flex flex-col relative">
-                    {/* Header */}
-                    <header className="bg-indigo-600 text-white p-4 sticky top-0 z-10 shadow-md">
-                        <div className="flex items-center justify-between">
-                            <h1 className="text-xl font-bold flex items-center gap-2">
-                                <i data-lucide="scan-line" className="w-6 h-6"></i>
-                                成分透视镜
-                            </h1>
-                            <button className="p-1 rounded-full hover:bg-indigo-500 transition">
-                                <i data-lucide="info" className="w-5 h-5"></i>
-                            </button>
-                        </div>
-                    </header>
-
-                    {/* Main Content */}
-                    <main className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto pb-24">
-                        
-                        {/* Input Area */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
-                            <label className="text-sm font-semibold text-gray-700 mb-2 flex justify-between items-center">
-                                <span>输入英文成分表</span>
-                                <button 
-                                    onClick={simulateScan}
-                                    className="text-xs text-indigo-600 flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded-md hover:bg-indigo-100 transition"
-                                >
-                                    <i data-lucide="camera" className="w-3 h-3"></i> 模拟扫描
-                                </button>
-                            </label>
-                            <textarea
-                                value={inputText}
-                                onChange={(e) => setInputText(e.target.value)}
-                                placeholder="例如: Water, Sugar, Citric Acid..."
-                                className="w-full h-32 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition resize-none"
-                            ></textarea>
-                            
-                            <button 
-                                id="analyze-btn"
-                                onClick={handleAnalyze}
-                                disabled={isAnalyzing}
-                                className={`w-full mt-3 py-3 rounded-lg font-bold text-white shadow-md transition-all flex justify-center items-center gap-2
-                                    ${isAnalyzing ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98]'}`}
-                            >
-                                {isAnalyzing ? (
-                                    <><i data-lucide="loader-2" className="w-5 h-5 animate-spin"></i> 分析中...</>
-                                ) : (
-                                    <><i data-lucide="search" className="w-5 h-5"></i> 开始分析</>
-                                )}
-                            </button>
-                        </div>
-
-                        {/* Results Area */}
-                        {results.length > 0 && (
-                            <div className="mt-2 space-y-3">
-                                <div className="flex justify-between items-end mb-1 px-1">
-                                    <h2 className="text-sm font-bold text-gray-800">分析结果 ({results.length})</h2>
-                                    <div className="flex gap-2 text-[10px] text-gray-500 font-medium">
-                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div>不健康</span>
-                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow-500"></div>注意</span>
-                                        <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div>正常</span>
-                                    </div>
-                                </div>
-
-                                {results.map((item, index) => {
-                                    const config = getStatusConfig(item.status);
-                                    return (
-                                        <div key={index} className={`p-3 rounded-xl border ${config.bg} ${config.border} shadow-sm flex items-start gap-3 transition-all animate-in fade-in slide-in-from-bottom-2 duration-300`} style={{animationDelay: `${index * 50}ms`}}>
-                                            {/* Status Dot */}
-                                            <div className="mt-1 flex-shrink-0">
-                                                <div className={`w-3 h-3 rounded-full ${config.badge} shadow-sm`}></div>
-                                            </div>
-                                            
-                                            {/* Content */}
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <h3 className={`font-bold text-base ${config.text} leading-tight`}>{item.zh}</h3>
-                                                        <p className="text-xs text-gray-500 capitalize mt-0.5 truncate">{item.name}</p>
-                                                    </div>
-                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full border ${config.border} ${config.text} bg-white bg-opacity-50 font-medium whitespace-nowrap`}>
-                                                        {config.label}
-                                                    </span>
-                                                </div>
-                                                <p className="mt-1.5 text-xs text-gray-600 leading-relaxed">
-                                                    {item.desc}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                        
-                        {/* Empty State */}
-                        {results.length === 0 && !isAnalyzing && (
-                            <div className="flex-1 flex flex-col items-center justify-center text-gray-400 mt-10">
-                                <i data-lucide="flask-conical" className="w-12 h-12 mb-3 text-gray-300"></i>
-                                <p className="text-sm">输入成分表开始分析，或者</p>
-                                <p className="text-sm">点击"模拟扫描"体验功能</p>
-                            </div>
-                        )}
-                    </main>
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+  // 拍照识别（Tesseract.js，在手机本地运行）
+  let worker = null;
+  function loadScript(src){ return new Promise((ok,bad)=>{ const s=document.createElement('script'); s.src=src; s.onload=ok; s.onerror=bad; document.head.appendChild(s); }); }
+  function shrink(file){
+    return new Promise(res => {
+      const img = new Image(); img.onload = () => {
+        const max = 2000, k = Math.min(1, max/Math.max(img.width,img.height));
+        const c = document.createElement('canvas'); c.width = img.width*k; c.height = img.height*k;
+        const g = c.getContext('2d'); g.filter = 'grayscale(1) contrast(1.3)'; g.drawImage(img,0,0,c.width,c.height);
+        c.toBlob(b => res(b), 'image/jpeg', 0.92);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+  $('cam').onchange = async e => {
+    const f = e.target.files[0]; if(!f) return;
+    try{
+      if(!window.Tesseract){ $('status').textContent = '首次使用，正在加载识别程序（约几 MB）…'; await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); }
+      if(!worker){ $('status').textContent = '正在准备英文识别…'; worker = await Tesseract.createWorker('eng'); }
+      $('status').textContent = '正在识别文字…';
+      const img = await shrink(f);
+      const { data } = await worker.recognize(img);
+      $('txt').value = data.text.trim();
+      run();
+      $('status').textContent += '（拍照识别可能有错字，可在上面文本框修改后再点“识别”）';
+    }catch(err){ $('status').textContent = '识别失败：' + (err && err.message || err) + '。可以改用 Google Lens 复制文字。'; }
+    e.target.value = '';
+  };
+}
+</script>
 </body>
 </html>
