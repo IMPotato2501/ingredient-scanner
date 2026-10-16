@@ -61,6 +61,9 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
 .add input{flex:1;min-width:120px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--text);font-size:14px}
 .add button,.add a{flex:none;min-width:0;padding:8px 10px;font-size:13px;border-radius:8px}
 .add a{border:1px solid var(--line);color:var(--text);text-decoration:none;font-weight:600}
+.sync{margin-top:22px;font-size:14px}
+.sync summary{cursor:pointer;color:var(--sub)}
+.sync .tip{font-size:13px;color:var(--sub)}
 .legend{font-size:12px;color:var(--sub);margin-top:22px;border-top:1px solid var(--line);padding-top:12px}
 .legend p{margin:4px 0}
 </style>
@@ -102,13 +105,19 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
     <div class="row"><button id="exportCustom" style="display:none">导出我补充的条目（发给 Claude 合并）</button></div>
   </div>
 
+  <details class="sync">
+    <summary>待查清单同步 · <span id="syncState"></span></summary>
+    <p class="tip">未识别的成分会自动记到你 GitHub 仓库里的 pending.json。需要一个只能改这个仓库的令牌（只用设置一次，存在这台手机里）。</p>
+    <div class="add"><input id="tok" type="password" placeholder="粘贴 GitHub 令牌（github_pat_ 开头）"><button id="saveTok">保存</button><button id="clearTok">清除</button></div>
+    <button id="pendingCopy" style="display:none;width:100%;margin-top:8px">复制暂存的待查项（发给 Claude）</button>
+  </details>
+
   <div class="legend">
     <p><span class="dot d0" style="display:inline-block"></span> 正常：普通食材，或一般认为安全的添加剂</p>
     <p><span class="dot d1" style="display:inline-block"></span> 留意：适量即可，或安全性有讨论、特定人群需注意</p>
     <p><span class="dot d2" style="display:inline-block"></span> 尽量少吃：有较明确的健康担忧，或在其他国家被禁/限用</p>
-    <p><span class="dot du" style="display:inline-block"></span> 未识别：可点“查一下”后自己补上，存在这台手机里</p>
+    <p><span class="dot du" style="display:inline-block"></span> 未识别：自动记入待查清单，之后统一查证归类</p>
     <p>点任意一项可看简短说明。</p>
-    <p>自己补充时的简单原则：天然食材及其简单加工（磨、榨、烤、晒干）算<b>正常</b>；各种糖、饱和脂肪高的油、加工肉、人工甜味剂、有争议的添加剂算<b>留意</b>；反式脂肪、别国禁用的色素、亚硝酸盐类算<b>尽量少吃</b>。</p>
     <p>成分表按含量从多到少排列，越靠前占比越大。分级仅供个人参考，不是医学建议。</p>
   </div>
 </div>
@@ -434,7 +443,10 @@ const FOOD = [
 ['fruit juice concentrate|juice concentrate|apple juice concentrate|concentrated fruit juice','浓缩果汁','添加糖',1,'按添加糖看待'],
 ['malt extract|barley malt extract|malt','麦芽提取物','食材',0,'含麦芽糖、麸质'],
 ['lactose','乳糖','食材',0,''],
-['salt|sea salt|iodised salt|iodized salt','盐','食材',0,'看营养表的钠含量'],
+['salt|sea salt|iodised salt|iodized salt|rock salt|kosher salt|table salt|sea salt flakes|salt flakes|flaky salt','盐','食材',0,'看营养表的钠含量'],
+['fleur de sel','盐之花','食材',0,'手工采集的海盐表层结晶；看营养表的钠含量'],
+['himalayan salt|himalayan pink salt|pink salt','喜马拉雅粉盐','食材',0,'看营养表的钠含量'],
+['pistachio paste|pistachio cream','开心果酱','食材',0,''],
 ['water|filtered water','水','食材',0,''],
 ['carbonated water|sparkling water','碳酸水','食材',0,''],
 ['vegetable oil|vegetable oils','植物油（未注明）','油脂',0,'看括号里是哪种油'],
@@ -674,7 +686,7 @@ aliasList.sort((a,b)=>b.length-a.length);
 const LEAD = new Set(['ingredients','ingredient','contains','contain','may','traces','trace','of','and','or','also','with','from','added','other','the','less','than','including','includes','made','min','minimum']);
 function stripLead(t){
   let w = t.split(' ');
-  while(w.length && LEAD.has(w[0])) w.shift();
+  while(w.length && (LEAD.has(w[0]) || (w.length > 1 && /^[a-z]$/.test(w[0]) && w[0] !== 'a'))) w.shift();   // 去掉开头的零散字母（OCR 噪点）
   while(w.length && (w[w.length-1]==='and'||w[w.length-1]==='or'||w[w.length-1]==='of')) w.pop();
   return w.join(' ');
 }
@@ -960,15 +972,7 @@ if(typeof document !== 'undefined'){
       if(!items.length) continue;
       html += `<div class="group"><h2><span class="dot ${dot}"></span>${name}<span class="n">${items.length} 项</span></h2>`;
       html += items.map((i, idx) => {
-        if(r === -1){
-          const q = encodeURIComponent(i.src + ' 食品成分 中文');
-          return `<div class="item open" data-u="${esc(i.src)}">${esc(i.src)}
-            <div class="note add">
-              <input placeholder="中文名" data-zh>
-              <a href="https://www.google.com/search?q=${q}" target="_blank" rel="noopener">查一下</a>
-              <button data-r="0">正常</button><button data-r="1">留意</button><button data-r="2">少吃</button>
-            </div></div>`;
-        }
+        if(r === -1) return `<div class="item">${esc(i.src)} <span class="z">· 已记入待查清单</span></div>`;
         const note = [i.type, i.note].filter(Boolean).join(' · ');
         return `<div class="item">${label(i)}${note ? `<div class="note">${esc(note)}</div>` : ''}</div>`;
       }).join('');
@@ -981,25 +985,83 @@ if(typeof document !== 'undefined'){
     $('out').hidden = false;
   }
   $('list').addEventListener('click', ev => {
-    const btn = ev.target.closest('button[data-r]');
-    if(btn){
-      const it = btn.closest('.item'); const name = it.dataset.u;
-      const zh = it.querySelector('[data-zh]').value.trim();
-      if(!zh){ it.querySelector('[data-zh]').focus(); $('status').textContent = '先填个中文名。'; return; }
-      const k = norm(name); CUSTOM[k] = {zh, r: +btn.dataset.r};
-      try{ localStorage.setItem('custom', JSON.stringify(CUSTOM)); }catch(e){}
-      addCustom(k, zh, +btn.dataset.r);
-      run(); $('status').textContent = `已保存：${name}（${zh}），以后会自动识别`;
-      return;
-    }
-    if(ev.target.closest('input,a')) return;
-    const it = ev.target.closest('.item'); if(it && !it.dataset.u) it.classList.toggle('open');
+    const it = ev.target.closest('.item'); if(it) it.classList.toggle('open');
   });
   $('exportCustom').onclick = async () => {
     const t = '成分查查 我补充的条目：\n' + Object.entries(CUSTOM).map(([k,v]) => `${k} | ${v.zh} | ${['正常','留意','少吃'][v.r]}`).join('\n');
     try{ await navigator.clipboard.writeText(t); $('exportCustom').textContent = '已复制 ✓'; }
     catch(e){ $('txt').value = t; $('exportCustom').textContent = '已放到上面文本框，请手动复制'; }
   };
+  // ===== 待查清单：自动记到 GitHub 仓库里的 pending.json =====
+  const REPO = (() => {                       // 从网址自动推出仓库：xxx.github.io/repo/
+    const m = location.hostname.match(/^([^.]+)\.github\.io$/);
+    const seg = location.pathname.split('/').filter(Boolean)[0];
+    return m && seg ? { owner: m[1], repo: seg } : null;
+  })();
+  const ls = { get: k => { try{ return localStorage.getItem(k); }catch(e){ return null; } },
+               set: (k, v) => { try{ localStorage.setItem(k, v); }catch(e){} } };
+  const b64 = { enc: str => btoa(unescape(encodeURIComponent(str))), dec: s => decodeURIComponent(escape(atob(s.replace(/\n/g,'')))) };
+  let localPending = []; try{ localPending = JSON.parse(ls.get('pending') || '[]'); }catch(e){}
+  async function gh(method, path, body){
+    const tok = ls.get('ghToken');
+    const r = await fetch(`https://api.github.com/repos/${REPO.owner}/${REPO.repo}/contents/${path}`, {
+      method, headers: { 'Authorization': 'Bearer ' + tok, 'Accept': 'application/vnd.github+json' },
+      body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
+    if(r.status === 404 && method === 'GET') return null;
+    if(!r.ok) throw new Error('GitHub ' + r.status);
+    return r.json();
+  }
+  async function pushPending(names, sample){
+    for(let attempt = 0; attempt < 3; attempt++){
+      const cur = await gh('GET', 'pending.json');
+      let list = []; try{ if(cur) list = JSON.parse(b64.dec(cur.content)); }catch(e){}
+      const today = new Date().toISOString().slice(0,10); let changed = false;
+      for(const n of names){
+        const k = norm(n); const hit = list.find(x => norm(x.name) === k);
+        if(hit){ hit.count = (hit.count || 1) + 1; hit.last = today; changed = true; }
+        else { list.push({ name: n, count: 1, first: today, last: today, sample: sample.slice(0, 400) }); changed = true; }
+      }
+      if(!changed) return list.length;
+      try{
+        await gh('PUT', 'pending.json', { message: '待查清单 +' + names.length, content: b64.enc(JSON.stringify(list, null, 1)), sha: cur ? cur.sha : undefined });
+        return list.length;
+      }catch(e){ if(!/409|422/.test(e.message) || attempt === 2) throw e; }   // 同时写入冲突，重试
+    }
+  }
+  async function recordUnknown(sample){
+    const names = [...new Set(last.filter(i => i.r === -1).map(i => i.src.trim()))];
+    // 先存手机本地，再尝试同步，失败的下次补上
+    for(const n of names) if(!localPending.some(x => norm(x.name) === norm(n))) localPending.push({ name: n, sample: sample.slice(0, 400) });
+    ls.set('pending', JSON.stringify(localPending));
+    syncPending();
+  }
+  let syncing = false;
+  async function syncPending(){
+    if(syncing || !localPending.length) { updateSyncUI(); return; }
+    if(!REPO || !ls.get('ghToken')){ updateSyncUI(); return; }
+    syncing = true; updateSyncUI('正在同步待查清单…');
+    try{
+      const batch = localPending.slice();
+      const total = await pushPending(batch.map(x => x.name), batch.map(x => x.sample).find(Boolean) || '');
+      localPending = localPending.filter(x => !batch.includes(x)); ls.set('pending', JSON.stringify(localPending));
+      updateSyncUI(`已同步到 GitHub，待查清单共 ${total} 项`);
+    }catch(e){ updateSyncUI('同步失败（' + e.message + '），下次识别时会自动重试'); }
+    syncing = false;
+  }
+  function updateSyncUI(msg){
+    const hasTok = !!ls.get('ghToken');
+    $('syncState').textContent = msg || (!REPO ? '只有放在 GitHub Pages 上才能同步' :
+      hasTok ? (localPending.length ? `有 ${localPending.length} 项等待同步` : '已连接 GitHub ✓') : '未设置令牌，未识别的成分暂存在这台手机里');
+    $('pendingCopy').style.display = localPending.length && !hasTok ? 'block' : 'none';
+  }
+  $('saveTok').onclick = () => { const t = $('tok').value.trim(); if(!t) return; ls.set('ghToken', t); $('tok').value = ''; updateSyncUI('令牌已保存'); syncPending(); };
+  $('clearTok').onclick = () => { localStorage.removeItem('ghToken'); updateSyncUI(); };
+  $('pendingCopy').onclick = async () => {
+    const t = '成分查查 待查：\n' + localPending.map(x => x.name).join('\n');
+    try{ await navigator.clipboard.writeText(t); $('pendingCopy').textContent = '已复制 ✓'; }catch(e){ $('txt').value = t; }
+  };
+  updateSyncUI();
+
   function run(){
     const txt = $('txt').value.trim();
     if(!txt){ $('status').textContent = '先粘贴或拍一张成分表。'; return; }
@@ -1007,6 +1069,7 @@ if(typeof document !== 'undefined'){
     last = analyze(ex.text);
     $('status').textContent = `共 ${last.length} 项` + (ex.cut ? '（已自动截取 Ingredients 部分）' : '');
     render();
+    if(last.some(i => i.r === -1)) recordUnknown(ex.text);
   }
   $('go').onclick = run;
   $('clear').onclick = () => { $('txt').value=''; $('out').hidden=true; $('status').textContent=''; };
