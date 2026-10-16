@@ -123,6 +123,7 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
 </div>
 
 <script>
+window.addEventListener('error', e => { const s = document.getElementById('status'); if(s) s.textContent = '页面出错：' + e.message + '（请截图发给 Claude）'; });
 // ===== 数据库 =====
 // 添加剂：[编号, 英文名(|分隔), 中文名, 类别, 分级 0正常/1留意/2少吃, 说明]
 const ADD = [
@@ -669,9 +670,8 @@ function addCustom(name, zh, r){
   const k = norm(name);
   const e = {code:'', en: name.charAt(0).toUpperCase()+name.slice(1), zh, type:'我补充的', r, note:'', add:true};
   byName[k] = e; if(!aliasList.includes(k)){ aliasList.push(k); aliasList.sort((a,b)=>b.length-a.length); }
-  if(typeof compactMap !== 'undefined') compactMap = compactIndex();
+  try{ compactMap = compactIndex(); }catch(e){}
 }
-for(const k in CUSTOM) addCustom(k, CUSTOM[k].zh, CUSTOM[k].r);
 const classSet = new Set(CLASS_WORDS.map(norm));
 function compactIndex(){
   const m = {};
@@ -679,6 +679,7 @@ function compactIndex(){
   return m;
 }
 let compactMap = compactIndex();
+for(const k in CUSTOM){ try{ addCustom(k, CUSTOM[k].zh, CUSTOM[k].r); }catch(e){} }   // 手机里自己补充过的条目
 const compactKeys = () => Object.keys(compactMap).sort((a,b)=>b.length-a.length);
 aliasList.sort((a,b)=>b.length-a.length);
 
