@@ -820,7 +820,7 @@ function analyze(text){
 }
 
 // ===== PaddleOCR (PP-OCRv4 mobile) 精简实现：检测 + 识别，不依赖 OpenCV =====
-const PPOCR = (() => {
+function PPOCR_FACTORY() {
   // 双线性缩放，img = {data: Uint8ClampedArray RGBA, width, height}
   function resize(src, sx, sy, sw, sh, dw, dh) {
     const out = new Uint8ClampedArray(dw * dh * 4), d = src.data, W = src.width, H = src.height;
@@ -942,17 +942,27 @@ const PPOCR = (() => {
   }
 
   async function run(ort, det, rec, dict, img, onProgress, thr = 0.3) {
-    const boxes = (await detect(ort, det, img, 1280, thr)).filter(b => b.L >= b.T * 0.8);   // 跳过竖排文字
-    const items = [];
+    // 从上到下识别；已经读到成分表、又遇到营养表等字样，就提前结束，省时间
+    const boxes = (await detect(ort, det, img, 1280, thr)).filter(b => b.L >= b.T * 0.8)   // 跳过竖排文字
+      .sort((a, b) => a.cy - b.cy);
+    const startRe = /[i1l|]\s?n\s?g\s?r\s?e\s?d\s?[i1l|]\s?e\s?n\s?t/i;
+    const stopRe = /nutrition|servings?\s*per|serving\s*size|average\s*quantity|per\s*100|storage|store\s*(in|below|at)|keep\s*refrig|best\s*before|use\s*by/i;
+    const items = []; let seenStart = false, stopY = Infinity;
     for (let i = 0; i < boxes.length; i++) {
+      if (boxes[i].cy - boxes[i].T > stopY) break;
       if (onProgress) onProgress(i + 1, boxes.length);
       const r = await recognizeBox(ort, rec, dict, img, boxes[i]);
-      if (r.text.trim() && r.conf >= 0.5) items.push({ ...boxes[i], text: r.text.trim() });
+      const t = r.text.trim();
+      if (t && r.conf >= 0.5) items.push({ ...boxes[i], text: t });
+      const flat = t.replace(/\s/g, '');
+      if (startRe.test(t)) seenStart = true;
+      else if (seenStart && stopY === Infinity && stopRe.test(flat)) stopY = boxes[i].cy + boxes[i].T / 2;
     }
     return joinLines(items);
   }
   return { run, resize };
-})();
+}
+const PPOCR = PPOCR_FACTORY();
 
 // ===== 界面 =====
 if(typeof document !== 'undefined'){
@@ -1137,7 +1147,6 @@ if(typeof document !== 'undefined'){
   // ---- PaddleOCR 加载 ----
   const ORT = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
   const MODELS = 'https://cdn.jsdelivr.net/npm/@gutenye/ocr-models@1.4.2/assets/';
-  let paddle = null;
   async function fetchCached(url){
     try{
       const c = await caches.open('ppocr-v1'); let r = await c.match(url);
@@ -1145,18 +1154,49 @@ if(typeof document !== 'undefined'){
       return r;
     }catch(e){ const r = await fetch(url); if(!r.ok) throw new Error('下载失败 ' + r.status); return r; }
   }
+  // 识别在后台线程（Web Worker）里跑，页面不会卡住
+  let paddle = null;
+  function makeWorker(){
+    const src = `importScripts('${ORT}ort.wasm.min.js');
+      ort.env.wasm.wasmPaths = '${ORT}'; ort.env.wasm.numThreads = 1;
+      const PPOCR = (${PPOCR_FACTORY.toString()})();
+      let det, rec, dict;
+      onmessage = async e => {
+        const m = e.data;
+        try{
+          if(m.type === 'init'){
+            det = await ort.InferenceSession.create(m.det); rec = await ort.InferenceSession.create(m.rec);
+            dict = [...m.dict.split('\\n'), ' ']; postMessage({type:'ready'});
+          } else if(m.type === 'run'){
+            const img = {data: new Uint8ClampedArray(m.buf), width: m.width, height: m.height};
+            const text = await PPOCR.run(ort, det, rec, dict, img, (i, n) => postMessage({type:'progress', i, n}));
+            postMessage({type:'done', text});
+          }
+        }catch(err){ postMessage({type:'error', message: String(err && err.message || err)}); }
+      };`;
+    return new Worker(URL.createObjectURL(new Blob([src], {type:'text/javascript'})));
+  }
+  function ask(w, msg, transfer, onProgress){
+    return new Promise((ok, bad) => {
+      w.onmessage = e => { const m = e.data;
+        if(m.type === 'progress'){ if(onProgress) onProgress(m.i, m.n); }
+        else if(m.type === 'error') bad(new Error(m.message));
+        else ok(m); };
+      w.onerror = e => { e.preventDefault && e.preventDefault(); bad(new Error(e.message || '后台线程出错')); };
+      w.postMessage(msg, transfer || []);
+    });
+  }
   async function loadPaddle(){
     if(paddle) return paddle;
     $('status').textContent = '首次使用，正在下载 PaddleOCR（约 16 MB，之后会缓存）…';
-    if(!window.ort) await loadScript(ORT + 'ort.wasm.min.js');
-    ort.env.wasm.wasmPaths = ORT; ort.env.wasm.numThreads = 1;
-    const [detBuf, recBuf, dictTxt] = await Promise.all([
+    const [det, rec, dict] = await Promise.all([
       fetchCached(MODELS + 'ch_PP-OCRv4_det_infer.onnx').then(r => r.arrayBuffer()),
       fetchCached(MODELS + 'ch_PP-OCRv4_rec_infer.onnx').then(r => r.arrayBuffer()),
       fetchCached(MODELS + 'ppocr_keys_v1.txt').then(r => r.text())]);
     $('status').textContent = '正在准备识别模型…';
-    const det = await ort.InferenceSession.create(detBuf), rec = await ort.InferenceSession.create(recBuf);
-    paddle = { det, rec, dict: [...dictTxt.split('\n'), ' '] };
+    const w = makeWorker();
+    await ask(w, {type:'init', det, rec, dict}, [det, rec]);
+    paddle = w;
     return paddle;
   }
   function regionPixels(region){
@@ -1164,7 +1204,7 @@ if(typeof document !== 'undefined'){
       const img = new Image(); img.onload = () => {
         const r = region || {x:0, y:0, w:1, h:1};
         const sx = r.x*img.width, sy = r.y*img.height, sw = r.w*img.width, sh = r.h*img.height;
-        const k = Math.min(2, 2000 / Math.max(sw, sh));
+        const k = Math.min(2, 1600 / Math.max(sw, sh));
         const c = document.createElement('canvas'); c.width = Math.round(sw*k); c.height = Math.round(sh*k);
         const g = c.getContext('2d'); g.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
         res(g.getImageData(0, 0, c.width, c.height));
@@ -1173,11 +1213,16 @@ if(typeof document !== 'undefined'){
     });
   }
   async function ocrPaddle(region){
-    const P = await loadPaddle();
+    const w = await loadPaddle();
+    const t0 = Date.now(), tick = () => `（${Math.round((Date.now()-t0)/1000)} 秒）`;
     $('status').textContent = '正在找文字位置…';
-    const img = await regionPixels(region);
-    const text = await PPOCR.run(ort, P.det, P.rec, P.dict, img, (i, n) => { $('status').textContent = `正在识别第 ${i}/${n} 行…`; });
-    return fixOcr(text);
+    const timer = setInterval(() => { $('status').textContent = $('status').textContent.replace(/（\d+ 秒）$/, '') + tick(); }, 1000);
+    try{
+      const img = await regionPixels(region);
+      const m = await ask(w, {type:'run', buf: img.data.buffer, width: img.width, height: img.height}, [img.data.buffer],
+        (i, n) => { $('status').textContent = `正在识别第 ${i}/${n} 段文字…` + tick(); });
+      return fixOcr(m.text);
+    } finally { clearInterval(timer); }
   }
   async function ocrTess(region){
     if(!window.Tesseract){ $('status').textContent = '正在加载 Tesseract（约几 MB）…'; await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); }
