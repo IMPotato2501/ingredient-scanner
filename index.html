@@ -48,7 +48,11 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
 .crop{margin-top:12px;display:none}
 .crop .stage{position:relative;touch-action:none;user-select:none;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
 .crop img{display:block;width:100%;height:auto;pointer-events:none}
-.crop .box{position:absolute;border:2px solid var(--accent);background:rgba(47,125,79,.15);display:none}
+.crop .box{position:absolute;border:3px solid #2f9e5b;background:rgba(47,158,91,.12);display:none;box-shadow:0 0 0 9999px rgba(0,0,0,.35);touch-action:none}
+.crop .hd{position:absolute;width:18px;height:18px;border-radius:50%;background:#2f9e5b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.crop .hd::after{content:'';position:absolute;inset:-14px}
+.crop .hd[data-c=tl]{left:-11px;top:-11px}.crop .hd[data-c=tr]{right:-11px;top:-11px}
+.crop .hd[data-c=bl]{left:-11px;bottom:-11px}.crop .hd[data-c=br]{right:-11px;bottom:-11px}
 .crop .tip{font-size:13px;color:var(--sub);margin:6px 0 0}
 .group h2{font-size:15px;margin:18px 0 6px;display:flex;align-items:center;gap:8px}
 .group h2 .n{font-weight:400;color:var(--sub);font-size:13px}
@@ -86,16 +90,17 @@ li.r0{border-left-color:var(--g)} li.r1{border-left-color:var(--y)} li.r2{border
   </div>
   <p class="hint">推荐用法（安卓）：相机打开 Google Lens → 对准成分表 → 选中文字 → 复制 → 回到这里粘贴。比网页拍照识别更准。</p>
   <div class="crop" id="crop">
-    <div class="stage" id="stage"><img id="photo" alt=""><div class="box" id="box"></div></div>
-    <p class="tip">用手指在照片上拖一个框，框住成分表那一段。不框就识别整张。</p>
+    <div class="stage" id="stage"><img id="photo" alt=""><div class="box" id="box"><i class="hd" data-c="tl"></i><i class="hd" data-c="tr"></i><i class="hd" data-c="bl"></i><i class="hd" data-c="br"></i></div></div>
+    <p class="tip" id="cropTip">绿框是自动找到的成分表。拖四个角可以放大缩小，按住框内可以移动，松手后结果自动更新。</p>
+    <div class="row">
+      <button id="selAll">全选</button>
+      <button id="selAuto">自动挑选</button>
+      <label class="btn" for="cam">重拍</label>
+      <button id="cropCancel">收起照片</button>
+    </div>
     <p class="tip">识别引擎：
       <label><input type="radio" name="eng" value="paddle" checked> PaddleOCR（推荐）</label>
       <label><input type="radio" name="eng" value="tess"> Tesseract</label></p>
-    <div class="row">
-      <button class="primary" id="ocrSel">识别选中区域</button>
-      <button id="ocrAll">识别整张</button>
-      <button id="cropCancel">取消</button>
-    </div>
   </div>
   <p class="status" id="status"></p>
 
@@ -713,6 +718,42 @@ function fixOcr(t){
     .replace(/(\d)[lI](?=\d)/g, '$11')                            // 4l1 → 411
     .replace(/([A-Z])0(?=[A-Z])/g, '$1O');                       // C0NTAINS → CONTAINS
 }
+// 在照片上的文字段落里，自动挑出成分表那一块。lines: [{x,y,w,h,cx,cy,ch,text}]
+function autoSelect(lines){
+  const ok = i => lines[i].text;
+  const idx = lines.map((l, i) => i).filter(ok).sort((a, b) => lines[a].cy - lines[b].cy);
+  if(!idx.length) return new Set();
+  const startRe = /(?:^|[^a-z])[i1l|]\s?n\s?g\s?r\s?e\s?d\s?[i1l|]\s?e\s?n\s?t/i;
+  const stopRe = /nutrition|servings?per|servingsize|averagequantity|per100|storage|store(in|below|at)|keeprefrig|bestbefore|useby|madein|productof|packed(in|by|for)|manufactured|distributed|www\.|recycl|healthstar/i;
+  const isStop = i => stopRe.test(lines[i].text.replace(/\s/g, '').toLowerCase());
+  const score = i => { const t = lines[i].text; let n = (t.match(/,/g) || []).length;
+    try{ n += analyze(t).filter(x => x.r >= 0).length * 2; }catch(e){} return n; };
+  let seed = idx.find(i => startRe.test(lines[i].text));
+  const sel = new Set();
+  if(seed === undefined){
+    let best = -1; for(const i of idx){ if(isStop(i)) continue; const sc = score(i); if(sc > best){ best = sc; seed = i; } }
+    if(best < 3) return new Set(idx.filter(i => !isStop(i)));
+  }
+  sel.add(seed);
+  let left = lines[seed].x, right = lines[seed].x + lines[seed].w;
+  const overlap = i => { const l = lines[i]; return Math.max(0, Math.min(right, l.x + l.w) - Math.max(left, l.x)) / Math.max(1, Math.min(l.w, right - left)); };
+  const grow = (dir) => {
+    let cur = seed; const order = dir > 0 ? idx.filter(i => lines[i].cy > lines[seed].cy) : idx.filter(i => lines[i].cy < lines[seed].cy).reverse();
+    for(const i of order){
+      const l = lines[i], c = lines[cur], ch = Math.max(l.ch || l.h, c.ch || c.h);
+      const gap = Math.abs(l.cy - c.cy);
+      if(gap < 0.6 * ch){ if(overlap(i) > 0 || Math.abs(l.x - (c.x + c.w)) < 4 * ch || Math.abs(c.x - (l.x + l.w)) < 4 * ch){ if(!isStop(i)) sel.add(i); } continue; }   // 同一行被拆开的片段
+      if(gap > 2.8 * ch) break;                       // 段落之间空得太开
+      if(overlap(i) < 0.5) continue;                  // 不在同一栏
+      if(isStop(i)) break;                            // 碰到营养表、储存说明等
+      if(dir < 0 && startRe.test(c.text)) break;     // 成分表标题以上不要
+      sel.add(i); cur = i; left = Math.min(left, l.x); right = Math.max(right, l.x + l.w);
+    }
+  };
+  if(!startRe.test(lines[seed].text)) grow(-1);
+  grow(1);
+  return sel;
+}
 // 从整段文字中截出成分表部分
 function extractIngredients(text){
   const startRe = /(?:^|[^a-z])[i1l|]\s?n\s?g\s?r\s?e\s?d\s?[i1l|]\s?e\s?n\s?t\s?s?(?:\s*list)?\s*[:：;\-]?/i;   // 容忍 OCR 错字，如 INGREDl ENTS
@@ -906,8 +947,9 @@ function PPOCR_FACTORY() {
       if (Math.min(L, T) < 3 * Math.min(fx, fy)) continue;
       const dist = L * T * 1.5 / (2 * (L + T));
       const cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+      const ch = T;
       L += 2 * dist; T += 2 * dist;
-      boxes.push({ cx: mx + cu * ux - cv * uy, cy: my + cu * uy + cv * ux, ux, uy, L, T,
+      boxes.push({ ch, cx: mx + cu * ux - cv * uy, cy: my + cu * uy + cv * ux, ux, uy, L, T,
                    x: mx + cu * ux - cv * uy - L / 2, y: my + cu * uy + cv * ux - T / 2, w: L, h: T });
     }
     return boxes;
@@ -961,7 +1003,25 @@ function PPOCR_FACTORY() {
     }
     return joinLines(items);
   }
-  return { run, resize };
+  // 版面扫描：返回每段文字的位置和内容；读完成分表后提前停，后面的段落留到需要时再识别
+  async function scan(ort, det, rec, dict, img, onProgress, thr = 0.3) {
+    const boxes = (await detect(ort, det, img, 1280, thr)).filter(b => b.L >= b.T * 0.8).sort((a, b) => a.cy - b.cy);
+    const startRe = /[i1l|]\s?n\s?g\s?r\s?e\s?d\s?[i1l|]\s?e\s?n\s?t/i;
+    const stopRe = /nutrition|servings?per|servingsize|averagequantity|per100|storage|store(in|below|at)|keeprefrig|bestbefore|useby/i;
+    let seenStart = false, stopY = Infinity;
+    for (let i = 0; i < boxes.length; i++) {
+      const b = boxes[i];
+      if (b.cy - b.T > stopY) { b.text = null; continue; }
+      if (onProgress) onProgress(i + 1, boxes.length);
+      const r = await recognizeBox(ort, rec, dict, img, b);
+      b.text = r.conf >= 0.5 ? r.text.trim() : '';
+      if (startRe.test(b.text)) seenStart = true;
+      else if (seenStart && stopY === Infinity && stopRe.test(b.text.replace(/\s/g, ''))) stopY = b.cy + b.T / 2;
+    }
+    return boxes.map(b => ({ x: b.x, y: b.y, w: b.w, h: b.h, cx: b.cx, cy: b.cy, ch: b.ch, ux: b.ux, uy: b.uy, L: b.L, T: b.T, text: b.text }));
+  }
+  async function recOne(ort, rec, dict, img, b) { const r = await recognizeBox(ort, rec, dict, img, b); return r.conf >= 0.5 ? r.text.trim() : ''; }
+  return { run, resize, scan, recOne, joinLines };
 }
 const PPOCR = PPOCR_FACTORY();
 
@@ -1073,16 +1133,16 @@ if(typeof document !== 'undefined'){
   };
   updateSyncUI();
 
-  function run(){
+  function run(record = true){
     const txt = $('txt').value.trim();
     if(!txt){ $('status').textContent = '先粘贴或拍一张成分表。'; return; }
     const ex = extractIngredients(txt);
     last = analyze(ex.text);
     $('status').textContent = `共 ${last.length} 项` + (ex.cut ? '（已自动截取 Ingredients 部分）' : '');
     render();
-    if(last.some(i => i.r === -1)) recordUnknown(ex.text);
+    if(record && last.some(i => i.r === -1)) recordUnknown(ex.text);
   }
-  $('go').onclick = run;
+  $('go').onclick = () => run();
   $('clear').onclick = () => { $('txt').value=''; $('out').hidden=true; $('status').textContent=''; };
   $('demo').onclick = () => { $('txt').value = 'Ingredients: Wheat Flour (contains Thiamine, Folic Acid), Sugar, Vegetable Oil (Palm, Canola), Glucose Syrup, Cocoa (3%), Salt, Emulsifiers (471, Soy Lecithin), Raising Agents (500ii, 450), Colour (150d), Flavour, Preservative (282), Sweetener (955). Contains: Wheat, Soy.'; run(); };
   $('paste').onclick = async () => {
@@ -1104,27 +1164,80 @@ if(typeof document !== 'undefined'){
       img.src = URL.createObjectURL(file);
     });
   }
-  let curFile = null, sel = null;
+  let curFile = null, lines = [], imgW = 1, imgH = 1, used = 'paddle', t0 = 0;
   const stage = $('stage'), box = $('box'), photo = $('photo');
   $('cam').onchange = e => {
     const f = e.target.files[0]; e.target.value = ''; if(!f) return;
-    curFile = f; sel = null; box.style.display = 'none';
+    curFile = f; lines = []; rect = null; box.style.display = 'none';
     photo.src = URL.createObjectURL(f);
     $('crop').style.display = 'block';
     $('status').textContent = '';
     setTimeout(() => $('crop').scrollIntoView({behavior:'smooth', block:'start'}), 100);
+    photo.onload = () => doOCR();
   };
+  // ---- 绿框：自动框住成分表，可拖四个角放大缩小、拖框内移动 ----
+  let rect = null;                                   // 以照片宽高为 1 的比例坐标
+  function showRect(){
+    if(!rect){ box.style.display = 'none'; return; }
+    Object.assign(box.style, { display:'block', left: rect.x*100+'%', top: rect.y*100+'%', width: rect.w*100+'%', height: rect.h*100+'%' });
+  }
+  function rectFrom(idxs){
+    if(!idxs.length) return {x:0, y:0, w:1, h:1};
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for(const i of idxs){ const l = lines[i]; x0 = Math.min(x0, l.x); y0 = Math.min(y0, l.y); x1 = Math.max(x1, l.x + l.w); y1 = Math.max(y1, l.y + l.h); }
+    const px = 0.01;
+    return { x: Math.max(0, x0/imgW - px), y: Math.max(0, y0/imgH - px), w: Math.min(1, (x1-x0)/imgW + 2*px), h: Math.min(1, (y1-y0)/imgH + 2*px) };
+  }
+  const inRect = i => { const l = lines[i], cx = (l.x + l.w/2)/imgW, cy = (l.y + l.h/2)/imgH;
+    return cx >= rect.x && cx <= rect.x + rect.w && cy >= rect.y && cy <= rect.y + rect.h; };
+  let recordTimer = null;
+  async function applyRect(){
+    showRect();
+    const idx = lines.map((l, i) => i).filter(inRect);
+    const need = idx.filter(i => lines[i].text === null);
+    if(need.length && used === 'paddle' && paddle){
+      $('status').textContent = `正在识别新框进来的 ${need.length} 段文字…`;
+      const m = await ask(paddle, {type:'rec', indices: need});
+      for(const [i, t] of m.texts) lines[i].text = t;
+    }
+    const items = idx.filter(i => lines[i].text).map(i => ({...lines[i]}));
+    $('txt').value = fixOcr(PPOCR.joinLines(items));
+    if(!items.length){ $('out').hidden = true; $('status').textContent = '绿框里没有文字，拖动绿框的角把成分表框进来。'; return; }
+    run(false);
+    $('status').textContent += `。用 ${used === 'paddle' ? 'PaddleOCR' : 'Tesseract'}` + (t0 ? `，${((Date.now()-t0)/1000).toFixed(1)} 秒` : '') + '。不对的话拖动绿框调整。';
+    t0 = 0;
+    clearTimeout(recordTimer);                       // 停止调整几秒后，才把未识别的记入待查清单
+    recordTimer = setTimeout(() => { if(last.some(i => i.r === -1)) recordUnknown($('txt').value); }, 6000);
+  }
   let drag = null;
-  const pos = ev => { const r = stage.getBoundingClientRect();
-    return { x: Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height)) }; };
-  stage.addEventListener('pointerdown', ev => { stage.setPointerCapture(ev.pointerId); drag = pos(ev); sel = null; box.style.display = 'none'; });
-  stage.addEventListener('pointermove', ev => { if(!drag) return; const p = pos(ev);
-    sel = { x: Math.min(drag.x, p.x), y: Math.min(drag.y, p.y), w: Math.abs(p.x - drag.x), h: Math.abs(p.y - drag.y) };
-    Object.assign(box.style, { display:'block', left: sel.x*100+'%', top: sel.y*100+'%', width: sel.w*100+'%', height: sel.h*100+'%' }); });
-  stage.addEventListener('pointerup', () => { drag = null; if(sel && (sel.w < 0.03 || sel.h < 0.03)){ sel = null; box.style.display = 'none'; } });
-  $('cropCancel').onclick = () => { $('crop').style.display = 'none'; curFile = null; };
-  $('ocrSel').onclick = () => doOCR(sel);
-  $('ocrAll').onclick = () => doOCR(null);
+  const pos = ev => { const r = stage.getBoundingClientRect(); return { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height }; };
+  stage.addEventListener('pointerdown', ev => {
+    if(!rect || !lines.length) return;
+    const h = ev.target.closest('.hd');
+    const p = pos(ev);
+    const inside = p.x >= rect.x && p.x <= rect.x + rect.w && p.y >= rect.y && p.y <= rect.y + rect.h;
+    if(!h && !inside) return;
+    ev.preventDefault(); stage.setPointerCapture(ev.pointerId);
+    drag = { mode: h ? h.dataset.c : 'move', p, r: {...rect} };
+  });
+  stage.addEventListener('pointermove', ev => {
+    if(!drag) return; const p = pos(ev), dx = p.x - drag.p.x, dy = p.y - drag.p.y, r = drag.r, min = 0.05;
+    let x0 = r.x, y0 = r.y, x1 = r.x + r.w, y1 = r.y + r.h;
+    if(drag.mode === 'move'){ const mx = Math.max(-x0, Math.min(1 - x1, dx)), my = Math.max(-y0, Math.min(1 - y1, dy)); x0 += mx; x1 += mx; y0 += my; y1 += my; }
+    else {
+      if(drag.mode.includes('l')) x0 = Math.max(0, Math.min(x1 - min, x0 + dx));
+      if(drag.mode.includes('r')) x1 = Math.min(1, Math.max(x0 + min, x1 + dx));
+      if(drag.mode.includes('t')) y0 = Math.max(0, Math.min(y1 - min, y0 + dy));
+      if(drag.mode.includes('b')) y1 = Math.min(1, Math.max(y0 + min, y1 + dy));
+    }
+    rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; showRect();
+  });
+  const endDrag = () => { if(!drag) return; drag = null; applyRect(); };
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+  $('selAll').onclick = () => { if(!lines.length) return; rect = {x:0, y:0, w:1, h:1}; applyRect(); };
+  $('selAuto').onclick = () => { if(!lines.length) return; rect = rectFrom([...autoSelect(lines)]); applyRect(); };
+  $('cropCancel').onclick = () => { $('crop').style.display = 'none'; };
 
   function prepare(region){
     return new Promise(res => {
@@ -1168,10 +1281,14 @@ if(typeof document !== 'undefined'){
           if(m.type === 'init'){
             det = await ort.InferenceSession.create(m.det); rec = await ort.InferenceSession.create(m.rec);
             dict = [...m.dict.split('\\n'), ' ']; postMessage({type:'ready'});
-          } else if(m.type === 'run'){
-            const img = {data: new Uint8ClampedArray(m.buf), width: m.width, height: m.height};
-            const text = await PPOCR.run(ort, det, rec, dict, img, (i, n) => postMessage({type:'progress', i, n}));
-            postMessage({type:'done', text});
+          } else if(m.type === 'scan'){
+            self.img = {data: new Uint8ClampedArray(m.buf), width: m.width, height: m.height};
+            self.lines = await PPOCR.scan(ort, det, rec, dict, self.img, (i, n) => postMessage({type:'progress', i, n}));
+            postMessage({type:'done', lines: self.lines});
+          } else if(m.type === 'rec'){
+            const texts = [];
+            for(const i of m.indices){ const t = await PPOCR.recOne(ort, rec, dict, self.img, self.lines[i]); self.lines[i].text = t; texts.push([i, t]); }
+            postMessage({type:'done', texts});
           }
         }catch(err){ postMessage({type:'error', message: String(err && err.message || err)}); }
       };`;
@@ -1200,50 +1317,44 @@ if(typeof document !== 'undefined'){
     paddle = w;
     return paddle;
   }
-  function regionPixels(region){
-    return new Promise(res => {
-      const img = new Image(); img.onload = () => {
-        const r = region || {x:0, y:0, w:1, h:1};
-        const sx = r.x*img.width, sy = r.y*img.height, sw = r.w*img.width, sh = r.h*img.height;
-        const k = Math.min(2, 1600 / Math.max(sw, sh));
-        const c = document.createElement('canvas'); c.width = Math.round(sw*k); c.height = Math.round(sh*k);
-        const g = c.getContext('2d'); g.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
-        res(g.getImageData(0, 0, c.width, c.height));
-      };
-      img.src = photo.src;
-    });
+  function photoCanvas(){
+    const k = Math.min(1, 2400 / Math.max(photo.naturalWidth, photo.naturalHeight));
+    const c = document.createElement('canvas'); c.width = Math.round(photo.naturalWidth*k); c.height = Math.round(photo.naturalHeight*k);
+    c.getContext('2d').drawImage(photo, 0, 0, c.width, c.height);
+    return c;
   }
-  async function ocrPaddle(region){
+  async function ocrPaddle(c){
     const w = await loadPaddle();
-    const t0 = Date.now(), tick = () => `（${Math.round((Date.now()-t0)/1000)} 秒）`;
+    const st = Date.now(), tick = () => `（${Math.round((Date.now()-st)/1000)} 秒）`;
     $('status').textContent = '正在找文字位置…';
     const timer = setInterval(() => { $('status').textContent = $('status').textContent.replace(/（\d+ 秒）$/, '') + tick(); }, 1000);
     try{
-      const img = await regionPixels(region);
-      const m = await ask(w, {type:'run', buf: img.data.buffer, width: img.width, height: img.height}, [img.data.buffer],
+      const img = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+      const m = await ask(w, {type:'scan', buf: img.data.buffer, width: img.width, height: img.height}, [img.data.buffer],
         (i, n) => { $('status').textContent = `正在识别第 ${i}/${n} 段文字…` + tick(); });
-      return fixOcr(m.text);
+      return m.lines;
     } finally { clearInterval(timer); }
   }
-  async function ocrTess(region){
+  async function ocrTess(c){
     if(!window.Tesseract){ $('status').textContent = '正在加载 Tesseract（约几 MB）…'; await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'); }
     if(!worker){ $('status').textContent = '正在准备英文识别…'; worker = await Tesseract.createWorker('eng'); }
     $('status').textContent = '正在识别文字…';
-    const { data } = await worker.recognize(await prepare(region));
-    return data.text;
+    const { data } = await worker.recognize(c);
+    return (data.lines || []).filter(l => l.text.trim()).map(l => { const b = l.bbox;
+      return { x: b.x0, y: b.y0, w: b.x1 - b.x0, h: b.y1 - b.y0, cx: (b.x0 + b.x1)/2, cy: (b.y0 + b.y1)/2, ch: b.y1 - b.y0, text: l.text.trim() }; });
   }
-  async function doOCR(region){
+  async function doOCR(){
     if(!curFile) return;
-    const t0 = Date.now(); let used = engine(), text;
+    t0 = Date.now(); used = engine();
     try{
+      const c = photoCanvas(); imgW = c.width; imgH = c.height;
       if(used === 'paddle'){
-        try{ text = await ocrPaddle(region); }
-        catch(err){ $('status').textContent = 'PaddleOCR 出错（' + (err && err.message || err) + '），改用 Tesseract…'; used = 'tess'; text = await ocrTess(region); }
-      } else text = await ocrTess(region);
-      $('txt').value = text.trim();
-      $('crop').style.display = 'none';
-      run();
-      $('status').textContent += `。用 ${used === 'paddle' ? 'PaddleOCR' : 'Tesseract'}，${((Date.now()-t0)/1000).toFixed(1)} 秒。如有错字，可在上面修改后再点“识别”。`;
+        try{ lines = await ocrPaddle(c); }
+        catch(err){ $('status').textContent = 'PaddleOCR 出错（' + (err && err.message || err) + '），改用 Tesseract…'; used = 'tess'; lines = await ocrTess(c); }
+      } else lines = await ocrTess(c);
+      if(!lines.some(l => l.text)){ rect = null; showRect(); $('status').textContent = '没认出文字，换个角度、靠近一点再拍。'; return; }
+      rect = rectFrom([...autoSelect(lines)]);
+      applyRect();
     }catch(err){ $('status').textContent = '识别失败：' + (err && err.message || err) + '。可以改用 Google Lens 复制文字。'; }
   }
 
